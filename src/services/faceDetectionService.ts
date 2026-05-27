@@ -19,10 +19,21 @@ export class FaceDetectionService {
 
     const visionFileset = await FilesetResolver.forVisionTasks(WASM_ASSET_BASE_URL);
 
-    this.faceLandmarker = await FaceLandmarker.createFromOptions(visionFileset, {
+    try {
+      this.faceLandmarker = await this.createFaceLandmarker(visionFileset, 'GPU');
+    } catch {
+      this.faceLandmarker = await this.createFaceLandmarker(visionFileset, 'CPU');
+    }
+  }
+
+  private async createFaceLandmarker(
+    visionFileset: Awaited<ReturnType<typeof FilesetResolver.forVisionTasks>>,
+    delegate: 'CPU' | 'GPU',
+  ): Promise<FaceLandmarker> {
+    return FaceLandmarker.createFromOptions(visionFileset, {
       baseOptions: {
         modelAssetPath: FACE_LANDMARKER_MODEL_URL,
-        delegate: 'GPU',
+        delegate,
       },
       runningMode: 'VIDEO',
       numFaces: 1,

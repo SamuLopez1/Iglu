@@ -51,6 +51,22 @@ const initialState: DrowsinessDetectionState = {
   lastFrameTimeMs: null,
 };
 
+function getErrorMessage(error: unknown, fallbackMessage: string): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  if (typeof error === 'string') {
+    return error;
+  }
+
+  try {
+    return JSON.stringify(error);
+  } catch {
+    return fallbackMessage;
+  }
+}
+
 export function useDrowsinessDetection({
   enabled,
   settings,
@@ -129,8 +145,7 @@ export function useDrowsinessDetection({
           setState((currentState) => ({
             ...currentState,
             isRunning: false,
-            errorMessage:
-              error instanceof Error ? error.message : 'Face detection failed.',
+            errorMessage: getErrorMessage(error, 'Face detection failed.'),
           }));
         }
       }
@@ -164,10 +179,10 @@ export function useDrowsinessDetection({
       } catch (error) {
         setState({
           ...initialState,
-          errorMessage:
-            error instanceof Error
-              ? error.message
-              : 'MediaPipe Face Landmarker could not be loaded.',
+          errorMessage: getErrorMessage(
+            error,
+            'MediaPipe Face Landmarker could not be loaded.',
+          ),
         });
       }
     };
