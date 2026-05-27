@@ -127,11 +127,10 @@ La interfaz permite ajustar:
 - Los landmarks faciales se usan solo en memoria durante el ciclo de detección.
 - La app no almacena datos faciales, imágenes, video ni perfiles biométricos.
 
-Por defecto, el runtime WASM de MediaPipe y el modelo Face Landmarker se cargan
-desde URLs oficiales de CDN/modelo. El modelo descargado corre localmente; los
-frames de video no se envían a esas URLs. Para despliegues estrictamente offline,
-puedes alojar los archivos WASM y el modelo `.task` dentro de `public/` y
-actualizar `faceDetectionService.ts` para usar rutas locales.
+El runtime WASM de MediaPipe y el modelo Face Landmarker se sirven desde la
+carpeta `public/mediapipe/` del propio proyecto. Esto evita fallos por CDN,
+reduce dependencias externas en tiempo de ejecución y mantiene los frames de
+video siempre dentro del navegador.
 
 ## Limitaciones del MVP
 

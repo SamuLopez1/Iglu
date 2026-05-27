@@ -4,10 +4,14 @@ import {
   type FaceLandmarkerResult,
 } from '@mediapipe/tasks-vision';
 
-const MEDIAPIPE_VERSION = '0.10.22';
-const WASM_ASSET_BASE_URL = `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${MEDIAPIPE_VERSION}/wasm`;
-const FACE_LANDMARKER_MODEL_URL =
-  'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/latest/face_landmarker.task';
+const WASM_ASSET_BASE_URL = `${import.meta.env.BASE_URL.replace(
+  /\/$/,
+  '',
+)}/mediapipe/wasm`;
+const FACE_LANDMARKER_MODEL_URL = `${import.meta.env.BASE_URL.replace(
+  /\/$/,
+  '',
+)}/mediapipe/models/face_landmarker.task`;
 
 export class FaceDetectionService {
   private faceLandmarker: FaceLandmarker | null = null;
