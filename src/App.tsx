@@ -4,6 +4,7 @@ import { AlertBanner } from './components/AlertBanner';
 import { CameraView } from './components/CameraView';
 import { DetectionStatus } from './components/DetectionStatus';
 import { FatiguePanel } from './components/FatiguePanel';
+import { InfoSection } from './components/InfoSection';
 import { MetricsPanel } from './components/MetricsPanel';
 import { SettingsPanel } from './components/SettingsPanel';
 import { useAudioAlert } from './hooks/useAudioAlert';
@@ -16,24 +17,18 @@ import {
 } from './types/settings.types';
 
 function App() {
-  const [settings, setSettings] = useState<DrowsinessSettings>(
-    defaultDrowsinessSettings,
-  );
+  const [settings, setSettings] = useState<DrowsinessSettings>(defaultDrowsinessSettings);
   const camera = useCamera();
   const detection = useDrowsinessDetection({
     enabled: camera.status === 'ready',
     settings,
     videoRef: camera.videoRef,
   });
-  const {
-    isAlertActive,
-    cooldownRemainingMs,
-    triggerAlert,
-    silenceAlert,
-  } = useAudioAlert({
-    cooldownMs: settings.alertCooldownMs,
-    soundEnabled: settings.soundEnabled,
-  });
+  const { isAlertActive, cooldownRemainingMs, triggerAlert, silenceAlert } =
+    useAudioAlert({
+      cooldownMs: settings.alertCooldownMs,
+      soundEnabled: settings.soundEnabled,
+    });
 
   const detectionStatus: DetectionStatusValue =
     camera.status !== 'ready'
@@ -56,39 +51,38 @@ function App() {
     camera.status !== 'ready'
       ? undefined
       : isAlertActive
-        ? 'Audible and visual alert is active. Press Silence to stop the current alarm.'
+        ? 'Alerta activa. Puedes silenciarla desde el botón superior.'
         : detection.isModelLoading
-          ? 'Loading MediaPipe Face Landmarker model.'
+          ? 'Cargando modelo de detección facial.'
           : detection.errorMessage
             ? detection.errorMessage
             : detection.faceDetected
-              ? `Score ${Math.round(
+              ? `Puntuación ${Math.round(
                   detection.analysis.fatigueScore,
-                )}/100. Last frame analyzed in ${
+                )}/100. Último frame en ${
                   detection.lastFrameTimeMs?.toFixed(1) ?? '0.0'
                 } ms.`
-              : 'No face landmarks are visible yet. Keep your face centered and well-lit.';
+              : 'Centra tu rostro y mantén buena iluminación.';
 
   return (
-    <main className="min-h-screen bg-zinc-950 text-zinc-50">
-      <div className="mx-auto flex min-h-screen max-w-7xl flex-col gap-6 px-4 py-6 lg:px-6">
-        <header className="flex flex-col justify-between gap-4 border-b border-zinc-800 pb-5 md:flex-row md:items-end">
+    <main className="min-h-screen w-full overflow-x-hidden bg-zinc-950 text-zinc-50">
+      <div className="mx-auto flex min-h-screen w-full max-w-7xl flex-col gap-4 overflow-x-hidden py-4 pl-3 pr-5 sm:px-4 sm:py-5 lg:px-6">
+        <header className="flex flex-col justify-between gap-3 border-b border-zinc-800 pb-4 md:flex-row md:items-end md:pb-5">
           <div>
-            <p className="text-sm font-medium uppercase tracking-[0.24em] text-cyan-300">
-              Local drowsiness detection
+            <p className="text-xs font-medium uppercase tracking-[0.22em] text-cyan-300 sm:text-sm">
+              Detección local
             </p>
-            <h1 className="mt-3 text-3xl font-semibold tracking-normal text-white md:text-4xl">
-              Facial Fatigue Monitor
+            <h1 className="mt-2 text-2xl font-semibold tracking-normal text-white sm:text-3xl md:text-4xl">
+              Monitor de Fatiga Facial
             </h1>
           </div>
-          <p className="max-w-xl text-sm leading-6 text-zinc-300">
-            Video stays on this device. Frames are analyzed in your browser and are not
-            uploaded or stored.
+          <p className="w-full min-w-0 max-w-xl rounded-md border border-emerald-400/20 bg-emerald-400/10 px-3 py-2 text-xs leading-5 text-emerald-100 sm:text-sm sm:leading-6">
+            Procesamiento local. No se guardan frames.
           </p>
         </header>
 
-        <div className="grid flex-1 gap-5 lg:grid-cols-[minmax(0,1fr)_360px]">
-          <div className="space-y-5">
+        <div className="grid min-w-0 flex-1 gap-4 lg:grid-cols-[minmax(0,1fr)_380px] lg:gap-5">
+          <div className="min-w-0 space-y-4">
             <AlertBanner
               isActive={isAlertActive}
               cooldownRemainingMs={cooldownRemainingMs}
@@ -104,35 +98,35 @@ function App() {
             />
           </div>
 
-          <aside className="space-y-5">
+          <aside className="min-w-0 space-y-4">
             <DetectionStatus status={detectionStatus} detail={detectionDetail} />
-            <section className="rounded-lg border border-zinc-800 bg-zinc-900 p-4">
-              <h2 className="text-base font-semibold text-white">Detection engine</h2>
-              <dl className="mt-3 grid grid-cols-2 gap-3 text-sm">
+            <FatiguePanel analysis={detection.analysis} />
+            <SettingsPanel settings={settings} onSettingsChange={setSettings} />
+            <InfoSection title="Motor de detección">
+              <dl className="grid grid-cols-2 gap-3 text-sm">
                 <div>
-                  <dt className="text-zinc-500">Model</dt>
+                  <dt className="text-zinc-500">Modelo</dt>
                   <dd className="mt-1 text-zinc-100">
-                    {detection.isModelLoading ? 'Loading' : 'Face Landmarker'}
+                    {detection.isModelLoading ? 'Cargando' : 'Face Landmarker'}
                   </dd>
                 </div>
                 <div>
                   <dt className="text-zinc-500">Runtime</dt>
                   <dd className="mt-1 text-zinc-100">
-                    {detection.isRunning ? 'Running' : 'Idle'}
+                    {detection.isRunning ? 'Activo' : 'En espera'}
                   </dd>
                 </div>
               </dl>
-            </section>
-            <FatiguePanel analysis={detection.analysis} />
-            <SettingsPanel settings={settings} onSettingsChange={setSettings} />
-            <MetricsPanel metrics={detection.metrics} />
-            <section className="rounded-lg border border-zinc-800 bg-zinc-900 p-4">
-              <h2 className="text-base font-semibold text-white">Privacy</h2>
-              <p className="mt-2 text-sm leading-6 text-zinc-300">
-                This MVP uses WebRTC camera access and local browser inference. No backend
-                endpoint exists in this project, and no face data is persisted.
+            </InfoSection>
+            <InfoSection title="Métricas en vivo">
+              <MetricsPanel metrics={detection.metrics} variant="embedded" />
+            </InfoSection>
+            <InfoSection title="Privacidad">
+              <p className="text-sm leading-6 text-zinc-300">
+                Esta app usa WebRTC y detección local en el navegador. No hay backend y no
+                se persisten datos faciales.
               </p>
-            </section>
+            </InfoSection>
           </aside>
         </div>
       </div>

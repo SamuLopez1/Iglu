@@ -16,15 +16,14 @@ export function AlertBanner({
   }
 
   return (
-    <section className="rounded-lg border border-rose-300 bg-rose-500 p-4 text-white shadow-lg shadow-rose-950/30">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+    <section className="w-full max-w-full rounded-lg border border-rose-300 bg-rose-500 p-3.5 text-white shadow-lg shadow-rose-950/30 sm:p-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
         <div className="flex items-start gap-3">
           <OctagonAlert className="mt-0.5 h-6 w-6 shrink-0" aria-hidden="true" />
           <div>
-            <h2 className="text-lg font-bold">Drowsiness detected</h2>
-            <p className="mt-1 text-sm leading-6 text-rose-50">
-              Fatigue signals exceeded the alert threshold. Cooldown:{' '}
-              {Math.ceil(cooldownRemainingMs / 1000)}s.
+            <h2 className="text-base font-bold sm:text-lg">Somnolencia detectada</h2>
+            <p className="mt-1 text-sm leading-5 text-rose-50 sm:leading-6">
+              Alerta activa. Cooldown: {Math.ceil(cooldownRemainingMs / 1000)}s.
             </p>
           </div>
         </div>
@@ -34,7 +33,7 @@ export function AlertBanner({
           onClick={onSilence}
         >
           <BellOff className="h-4 w-4" aria-hidden="true" />
-          Silence
+          Silenciar
         </button>
       </div>
     </section>

@@ -12,19 +12,19 @@ interface UseCameraResult extends CameraState {
 const getCameraErrorMessage = (error: unknown): string => {
   if (error instanceof DOMException) {
     if (error.name === 'NotAllowedError' || error.name === 'PermissionDeniedError') {
-      return 'Camera permission was denied. Allow camera access to start detection.';
+      return 'El permiso de cámara fue denegado. Actívalo para iniciar la detección.';
     }
 
     if (error.name === 'NotFoundError' || error.name === 'DevicesNotFoundError') {
-      return 'No camera was found on this device.';
+      return 'No se encontró una cámara en este dispositivo.';
     }
 
     if (error.name === 'NotReadableError' || error.name === 'TrackStartError') {
-      return 'The camera is already in use by another application.';
+      return 'La cámara ya está siendo usada por otra aplicación.';
     }
   }
 
-  return 'The camera could not be started.';
+  return 'No se pudo iniciar la cámara.';
 };
 
 export function useCamera(): UseCameraResult {
@@ -53,7 +53,7 @@ export function useCamera(): UseCameraResult {
     if (!navigator.mediaDevices?.getUserMedia) {
       setState({
         status: 'error',
-        errorMessage: 'This browser does not support camera access.',
+        errorMessage: 'Este navegador no soporta acceso a la cámara.',
       });
       return;
     }
