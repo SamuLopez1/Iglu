@@ -1,9 +1,19 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import type { CameraState } from '../types/detection.types';
+import type { CameraEnhancementState } from '../types/visibility.types';
+import {
+  applyCameraEnhancements,
+  initialCameraEnhancementState,
+} from '../utils/cameraEnhancements';
+
+interface UseCameraOptions {
+  cameraEnhancementEnabled?: boolean;
+}
 
 interface UseCameraResult extends CameraState {
   stream: MediaStream | null;
+  cameraEnhancement: CameraEnhancementState;
   videoRef: React.RefObject<HTMLVideoElement | null>;
   startCamera: () => Promise<void>;
   stopCamera: () => void;
@@ -27,9 +37,13 @@ const getCameraErrorMessage = (error: unknown): string => {
   return 'No se pudo iniciar la cámara.';
 };
 
-export function useCamera(): UseCameraResult {
+export function useCamera({
+  cameraEnhancementEnabled = true,
+}: UseCameraOptions = {}): UseCameraResult {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const [stream, setStream] = useState<MediaStream | null>(null);
+  const [cameraEnhancement, setCameraEnhancement] =
+    useState<CameraEnhancementState>(initialCameraEnhancementState);
   const [state, setState] = useState<CameraState>({
     status: 'idle',
     errorMessage: null,
@@ -66,6 +80,7 @@ export function useCamera(): UseCameraResult {
           facingMode: 'user',
           width: { ideal: 1280 },
           height: { ideal: 720 },
+          frameRate: { ideal: 30, max: 30 },
         },
         audio: false,
       });
@@ -91,11 +106,37 @@ export function useCamera(): UseCameraResult {
     video.srcObject = stream;
   }, [stream]);
 
+  useEffect(() => {
+    const videoTrack = stream?.getVideoTracks()[0];
+
+    if (!videoTrack || !cameraEnhancementEnabled) {
+      setCameraEnhancement(initialCameraEnhancementState);
+      return;
+    }
+
+    let isCancelled = false;
+
+    const enhanceCamera = async () => {
+      const nextCameraEnhancement = await applyCameraEnhancements(videoTrack);
+
+      if (!isCancelled) {
+        setCameraEnhancement(nextCameraEnhancement);
+      }
+    };
+
+    void enhanceCamera();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [cameraEnhancementEnabled, stream]);
+
   useEffect(() => stopCamera, [stopCamera]);
 
   return {
     ...state,
     stream,
+    cameraEnhancement,
     videoRef,
     startCamera,
     stopCamera,

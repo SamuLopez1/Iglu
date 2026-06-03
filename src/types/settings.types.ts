@@ -1,3 +1,8 @@
+import type {
+  ScreenLightIntensity,
+  VisibilityMode,
+} from './visibility.types';
+
 export type DetectionSensitivity = 'low' | 'medium' | 'high';
 
 export interface DrowsinessSettings {
@@ -10,6 +15,10 @@ export interface DrowsinessSettings {
   alertCooldownMs: number;
   soundEnabled: boolean;
   sensitivity: DetectionSensitivity;
+  visibilityMode: VisibilityMode;
+  screenLightIntensity: ScreenLightIntensity;
+  videoEnhancementEnabled: boolean;
+  cameraEnhancementEnabled: boolean;
 }
 
 export const defaultDrowsinessSettings: DrowsinessSettings = {
@@ -22,4 +31,8 @@ export const defaultDrowsinessSettings: DrowsinessSettings = {
   alertCooldownMs: 8000,
   soundEnabled: true,
   sensitivity: 'medium',
+  visibilityMode: 'auto',
+  screenLightIntensity: 'medium',
+  videoEnhancementEnabled: true,
+  cameraEnhancementEnabled: true,
 };

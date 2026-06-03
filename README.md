@@ -76,15 +76,19 @@ src/
     useAudioAlert.ts
     useCamera.ts
     useDrowsinessDetection.ts
+    useLightingAnalysis.ts
   services/
     drowsinessAnalyzer.ts
     faceDetectionService.ts
   types/
     detection.types.ts
     settings.types.ts
+    visibility.types.ts
   utils/
+    cameraEnhancements.ts
     landmarkUtils.ts
     mathUtils.ts
+    visibilityUtils.ts
   App.tsx
   main.tsx
 ```
@@ -119,6 +123,27 @@ La interfaz permite ajustar:
 - Cooldown de alerta
 - Sonido activado/desactivado
 - Sensibilidad de detección: baja, media o alta
+- Modo Visibilidad Móvil: auto, noche, contraluz u off
+- Luz de pantalla: off, baja, media o alta
+- Mejora visual por CSS y mejora de cámara cuando el navegador lo soporta
+
+## Modo Visibilidad Móvil
+
+El Modo Visibilidad Móvil analiza una muestra pequeña del video local para
+estimar brillo, contraste y proporción de píxeles oscuros o muy claros. Con esas
+métricas clasifica la escena como normal, baja luz, contraluz o luz insuficiente.
+
+La mejora por software aplica filtros CSS moderados sobre el elemento de video y
+puede activar una luz perimetral en pantalla para ayudar a iluminar el rostro en
+celulares. MediaPipe sigue recibiendo el video original, no frames procesados.
+
+Cuando el navegador expone capacidades de cámara compatibles, la app intenta
+aplicar ajustes seguros como compensación de exposición o frame rate estable. Si
+esas APIs no existen, la app continúa funcionando sin errores.
+
+Este modo no reemplaza una buena iluminación real: sombras fuertes, contraluz
+extremo, movimiento o baja calidad de cámara pueden reducir la confiabilidad de
+la detección. Los frames no se guardan ni se envían a un backend.
 
 ## Privacidad
 

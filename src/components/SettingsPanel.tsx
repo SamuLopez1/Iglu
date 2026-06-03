@@ -1,9 +1,18 @@
-import { Gauge, Volume2, VolumeX } from 'lucide-react';
+import { Camera, Gauge, Sparkles, Volume2, VolumeX } from 'lucide-react';
 
-import type { DetectionSensitivity, DrowsinessSettings } from '../types/settings.types';
+import type {
+  DetectionSensitivity,
+  DrowsinessSettings,
+} from '../types/settings.types';
+import type {
+  CameraEnhancementState,
+  ScreenLightIntensity,
+  VisibilityMode,
+} from '../types/visibility.types';
 
 interface SettingsPanelProps {
   settings: DrowsinessSettings;
+  cameraEnhancement: CameraEnhancementState;
   onSettingsChange: (settings: DrowsinessSettings) => void;
 }
 
@@ -14,7 +23,46 @@ const sensitivityLabels: Record<DetectionSensitivity, string> = {
   high: 'Alta',
 };
 
-export function SettingsPanel({ settings, onSettingsChange }: SettingsPanelProps) {
+const visibilityModeOptions: VisibilityMode[] = ['auto', 'night', 'backlight', 'off'];
+const visibilityModeLabels: Record<VisibilityMode, string> = {
+  auto: 'Auto',
+  night: 'Noche',
+  backlight: 'Contraluz',
+  off: 'Off',
+};
+
+const screenLightOptions: ScreenLightIntensity[] = ['off', 'low', 'medium', 'high'];
+const screenLightLabels: Record<ScreenLightIntensity, string> = {
+  off: 'Off',
+  low: 'Baja',
+  medium: 'Media',
+  high: 'Alta',
+};
+
+function getCameraEnhancementLabel(
+  settings: DrowsinessSettings,
+  cameraEnhancement: CameraEnhancementState,
+): string {
+  if (!settings.cameraEnhancementEnabled) {
+    return 'Off';
+  }
+
+  if (cameraEnhancement.applied) {
+    return 'Aplicada';
+  }
+
+  if (cameraEnhancement.supported) {
+    return 'Disponible';
+  }
+
+  return 'Auto';
+}
+
+export function SettingsPanel({
+  settings,
+  cameraEnhancement,
+  onSettingsChange,
+}: SettingsPanelProps) {
   const updateSettings = (patch: Partial<DrowsinessSettings>) => {
     onSettingsChange({ ...settings, ...patch });
   };
@@ -108,6 +156,56 @@ export function SettingsPanel({ settings, onSettingsChange }: SettingsPanelProps
         </label>
 
         <fieldset className="min-w-0">
+          <legend className="text-sm text-zinc-300">Modo visibilidad</legend>
+          <div className="mt-2 grid min-w-0 grid-cols-4 rounded-md border border-zinc-700 bg-zinc-950 p-1">
+            {visibilityModeOptions.map((option) => {
+              const isSelected = settings.visibilityMode === option;
+
+              return (
+                <button
+                  key={option}
+                  className={`min-h-10 min-w-0 rounded px-1 text-xs font-semibold transition sm:px-2 ${
+                    isSelected
+                      ? 'bg-cyan-300 text-zinc-950'
+                      : 'text-zinc-300 hover:bg-zinc-800'
+                  }`}
+                  type="button"
+                  aria-pressed={isSelected}
+                  onClick={() => updateSettings({ visibilityMode: option })}
+                >
+                  {visibilityModeLabels[option]}
+                </button>
+              );
+            })}
+          </div>
+        </fieldset>
+
+        <fieldset className="min-w-0">
+          <legend className="text-sm text-zinc-300">Luz de pantalla</legend>
+          <div className="mt-2 grid min-w-0 grid-cols-4 rounded-md border border-zinc-700 bg-zinc-950 p-1">
+            {screenLightOptions.map((option) => {
+              const isSelected = settings.screenLightIntensity === option;
+
+              return (
+                <button
+                  key={option}
+                  className={`min-h-10 min-w-0 rounded px-1 text-xs font-semibold transition sm:px-2 ${
+                    isSelected
+                      ? 'bg-cyan-300 text-zinc-950'
+                      : 'text-zinc-300 hover:bg-zinc-800'
+                  }`}
+                  type="button"
+                  aria-pressed={isSelected}
+                  onClick={() => updateSettings({ screenLightIntensity: option })}
+                >
+                  {screenLightLabels[option]}
+                </button>
+              );
+            })}
+          </div>
+        </fieldset>
+
+        <fieldset className="min-w-0">
           <legend className="text-sm text-zinc-300">Sensibilidad</legend>
           <div className="mt-2 grid min-w-0 grid-cols-3 rounded-md border border-zinc-700 bg-zinc-950 p-1">
             {sensitivityOptions.map((option) => {
@@ -131,6 +229,50 @@ export function SettingsPanel({ settings, onSettingsChange }: SettingsPanelProps
             })}
           </div>
         </fieldset>
+
+        <div className="grid gap-2 sm:grid-cols-2">
+          <button
+            className={`inline-flex min-h-11 items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm font-semibold transition ${
+              settings.videoEnhancementEnabled
+                ? 'border-cyan-300 bg-cyan-300 text-zinc-950'
+                : 'border-zinc-700 bg-zinc-950 text-zinc-100 hover:border-cyan-300'
+            }`}
+            type="button"
+            aria-pressed={settings.videoEnhancementEnabled}
+            onClick={() =>
+              updateSettings({
+                videoEnhancementEnabled: !settings.videoEnhancementEnabled,
+              })
+            }
+          >
+            <Sparkles className="h-4 w-4" aria-hidden="true" />
+            Visual
+            <span className="ml-auto text-[11px] opacity-80">
+              {settings.videoEnhancementEnabled ? 'On' : 'Off'}
+            </span>
+          </button>
+
+          <button
+            className={`inline-flex min-h-11 items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm font-semibold transition ${
+              settings.cameraEnhancementEnabled
+                ? 'border-cyan-300 bg-cyan-300 text-zinc-950'
+                : 'border-zinc-700 bg-zinc-950 text-zinc-100 hover:border-cyan-300'
+            }`}
+            type="button"
+            aria-pressed={settings.cameraEnhancementEnabled}
+            onClick={() =>
+              updateSettings({
+                cameraEnhancementEnabled: !settings.cameraEnhancementEnabled,
+              })
+            }
+          >
+            <Camera className="h-4 w-4" aria-hidden="true" />
+            Camara
+            <span className="ml-auto text-[11px] opacity-80">
+              {getCameraEnhancementLabel(settings, cameraEnhancement)}
+            </span>
+          </button>
+        </div>
 
         <button
           className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-md border border-zinc-700 bg-zinc-950 px-4 py-2 text-sm font-semibold text-zinc-100 transition hover:border-cyan-300"

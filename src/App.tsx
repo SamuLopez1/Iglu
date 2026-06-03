@@ -10,6 +10,7 @@ import { SettingsPanel } from './components/SettingsPanel';
 import { useAudioAlert } from './hooks/useAudioAlert';
 import { useCamera } from './hooks/useCamera';
 import { useDrowsinessDetection } from './hooks/useDrowsinessDetection';
+import { useLightingAnalysis } from './hooks/useLightingAnalysis';
 import type { DetectionStatus as DetectionStatusValue } from './types/detection.types';
 import {
   defaultDrowsinessSettings,
@@ -18,7 +19,13 @@ import {
 
 function App() {
   const [settings, setSettings] = useState<DrowsinessSettings>(defaultDrowsinessSettings);
-  const camera = useCamera();
+  const camera = useCamera({
+    cameraEnhancementEnabled: settings.cameraEnhancementEnabled,
+  });
+  const lightingAnalysis = useLightingAnalysis({
+    enabled: camera.status === 'ready' && settings.visibilityMode !== 'off',
+    videoRef: camera.videoRef,
+  });
   const detection = useDrowsinessDetection({
     enabled: camera.status === 'ready',
     settings,
@@ -47,6 +54,8 @@ function App() {
     }
   }, [detection.analysis.shouldTriggerAlert, triggerAlert]);
 
+  const hasLimitedLighting =
+    settings.visibilityMode !== 'off' && lightingAnalysis.condition !== 'normal';
   const detectionDetail =
     camera.status !== 'ready'
       ? undefined
@@ -62,7 +71,9 @@ function App() {
                 )}/100. Último frame en ${
                   detection.lastFrameTimeMs?.toFixed(1) ?? '0.0'
                 } ms.`
-              : 'Centra tu rostro y mantén buena iluminación.';
+              : hasLimitedLighting
+                ? 'Centra tu rostro y mejora la iluminacion.'
+                : 'Centra tu rostro y manten buena iluminacion.';
 
   return (
     <main className="min-h-screen w-full overflow-x-hidden bg-zinc-950 text-zinc-50">
@@ -92,6 +103,10 @@ function App() {
               status={camera.status}
               errorMessage={camera.errorMessage}
               videoRef={camera.videoRef}
+              lightingAnalysis={lightingAnalysis}
+              visibilityMode={settings.visibilityMode}
+              screenLightIntensity={settings.screenLightIntensity}
+              videoEnhancementEnabled={settings.videoEnhancementEnabled}
               onStartCamera={() => {
                 void camera.startCamera();
               }}
@@ -101,7 +116,11 @@ function App() {
           <aside className="min-w-0 space-y-4">
             <DetectionStatus status={detectionStatus} detail={detectionDetail} />
             <FatiguePanel analysis={detection.analysis} />
-            <SettingsPanel settings={settings} onSettingsChange={setSettings} />
+            <SettingsPanel
+              settings={settings}
+              cameraEnhancement={camera.cameraEnhancement}
+              onSettingsChange={setSettings}
+            />
             <InfoSection title="Motor de detección">
               <dl className="grid grid-cols-2 gap-3 text-sm">
                 <div>
