@@ -15,8 +15,11 @@ export interface CameraState {
 export interface FacialMetrics {
   leftEyeAspectRatio: number;
   rightEyeAspectRatio: number;
+  leftEyeHorizontalSpan: number;
+  rightEyeHorizontalSpan: number;
   eyeAspectRatio: number;
   mouthAspectRatio: number;
+  mouthOpeningRatio: number;
   headPitchDegrees: number;
   headYawDegrees: number;
   headRollDegrees: number;

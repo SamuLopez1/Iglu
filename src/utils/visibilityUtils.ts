@@ -109,6 +109,12 @@ const screenLightValues: Record<ScreenLightIntensity, ScreenLightRenderValues> =
   },
 };
 
+const NIGHT_SCREEN_LIGHT_EDGE_BOOST = {
+  edgeOpacity: 1.42,
+  centerOpacity: 1.12,
+  glowOpacity: 1.28,
+} as const;
+
 export function getLightingPixelThresholds(): {
   darkLumaThreshold: number;
   brightLumaThreshold: number;
@@ -260,6 +266,29 @@ export function shouldUseScreenLight({
 
 export function getScreenLightRenderValues(
   intensity: ScreenLightIntensity,
+  visibilityMode: VisibilityMode,
 ): ScreenLightRenderValues {
-  return screenLightValues[intensity];
+  const values = screenLightValues[intensity];
+
+  if (visibilityMode !== 'night' || intensity === 'off') {
+    return values;
+  }
+
+  return {
+    edgeOpacity: clamp(
+      values.edgeOpacity * NIGHT_SCREEN_LIGHT_EDGE_BOOST.edgeOpacity,
+      0,
+      0.72,
+    ),
+    centerOpacity: clamp(
+      values.centerOpacity * NIGHT_SCREEN_LIGHT_EDGE_BOOST.centerOpacity,
+      0,
+      0.16,
+    ),
+    glowOpacity: clamp(
+      values.glowOpacity * NIGHT_SCREEN_LIGHT_EDGE_BOOST.glowOpacity,
+      0,
+      0.78,
+    ),
+  };
 }

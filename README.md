@@ -91,6 +91,8 @@ En macOS o Linux, usa `npm run ...` en lugar de `npm.cmd run ...`.
 - Estimación de fatiga con puntuación de 0 a 100.
 - Señales de ojos cerrados, bostezo, inclinación de cabeza, quietud facial y
   parpadeo repetido.
+- Lectura más tolerante de ojos y boca cuando el rostro está parcialmente de
+  perfil.
 - Alerta sonora con cooldown configurable.
 - Estado visual de detección: despierto, posible fatiga, somnolencia, sin rostro
   o cámara no disponible.
@@ -220,6 +222,12 @@ y actualiza una puntuación de fatiga de 0 a 100. La alerta se activa cuando la
 puntuación supera el umbral de somnolencia o cuando los ojos permanecen cerrados
 por más tiempo del configurado.
 
+Cuando la cara está girada, la app usa la pose de cabeza para entrar en un modo
+de confiabilidad reducida. En ese caso prioriza el ojo con mayor visibilidad y
+valida bostezos con apertura vertical de boca relativa a la escala del rostro.
+Si el perfil es demasiado extremo, la app evita disparar señales fuertes y
+prefiere advertir que el rostro está fuera de ángulo.
+
 ## Estructura del Proyecto
 
 ```text
@@ -278,6 +286,8 @@ Esto evita depender de un CDN en tiempo de ejecución.
   persona.
 - Gafas, mascarillas, sombras fuertes, contraluz extremo, desenfoque por
   movimiento o mala posición de cámara reducen la precisión.
+- El soporte de perfil mejora gestos moderados de lado, pero no puede recuperar
+  landmarks que la cámara ya no ve.
 - El Modo Visibilidad Móvil ayuda, pero no reemplaza buena iluminación real.
 - Las capacidades avanzadas de cámara dependen del navegador y del dispositivo.
   En iOS/Safari pueden estar limitadas o no existir.

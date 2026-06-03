@@ -11,8 +11,10 @@ import {
 import type { DrowsinessSettings } from '../types/settings.types';
 import {
   calculateEyeAspectRatio,
+  calculateEyeHorizontalSpan,
   calculateLandmarkMovement,
   calculateMouthAspectRatio,
+  calculateMouthOpeningRatio,
   getHeadEulerAngles,
 } from '../utils/landmarkUtils';
 import { average, clamp } from '../utils/mathUtils';
@@ -34,13 +36,25 @@ export function analyzeFacialMetrics({
 
   const leftEyeAspectRatio = calculateEyeAspectRatio(landmarks, 'left');
   const rightEyeAspectRatio = calculateEyeAspectRatio(landmarks, 'right');
+  const leftEyeHorizontalSpan = calculateEyeHorizontalSpan(landmarks, 'left');
+  const rightEyeHorizontalSpan = calculateEyeHorizontalSpan(landmarks, 'right');
   const headAngles = getHeadEulerAngles(result.facialTransformationMatrixes[0]);
+  const isProfileLike =
+    Math.abs(headAngles.yawDegrees) >= PROFILE_EYE_SELECTION_YAW_DEGREES;
+  const eyeAspectRatio = isProfileLike
+    ? leftEyeHorizontalSpan > rightEyeHorizontalSpan
+      ? leftEyeAspectRatio
+      : rightEyeAspectRatio
+    : average([leftEyeAspectRatio, rightEyeAspectRatio]);
 
   return {
     leftEyeAspectRatio,
     rightEyeAspectRatio,
-    eyeAspectRatio: average([leftEyeAspectRatio, rightEyeAspectRatio]),
+    leftEyeHorizontalSpan,
+    rightEyeHorizontalSpan,
+    eyeAspectRatio,
     mouthAspectRatio: calculateMouthAspectRatio(landmarks),
+    mouthOpeningRatio: calculateMouthOpeningRatio(landmarks),
     headPitchDegrees: headAngles.pitchDegrees,
     headYawDegrees: headAngles.yawDegrees,
     headRollDegrees: headAngles.rollDegrees,
@@ -115,6 +129,11 @@ const DROWSY_SCORE_THRESHOLD = 70;
 const POSSIBLE_FATIGUE_SCORE_THRESHOLD = 38;
 const ADAPTIVE_WARMUP_SAMPLE_COUNT = 24;
 const ADAPTIVE_READY_SAMPLE_COUNT = 90;
+const PROFILE_EYE_SELECTION_YAW_DEGREES = 18;
+const PROFILE_YAW_LIMIT_DEGREES = 54;
+const PROFILE_EYE_WIDTH_DOMINANCE_RATIO = 1.16;
+const PROFILE_YAWN_MOUTH_OPENING_RATIO = 0.085;
+const PROFILE_YAWN_THRESHOLD_SCALE = 1.12;
 
 interface SensitivityTuning {
   eyeThresholdScale: number;
@@ -225,10 +244,18 @@ function smoothMetrics(
       previous.leftEyeAspectRatio * (1 - alpha) + current.leftEyeAspectRatio * alpha,
     rightEyeAspectRatio:
       previous.rightEyeAspectRatio * (1 - alpha) + current.rightEyeAspectRatio * alpha,
+    leftEyeHorizontalSpan:
+      previous.leftEyeHorizontalSpan * (1 - alpha) +
+      current.leftEyeHorizontalSpan * alpha,
+    rightEyeHorizontalSpan:
+      previous.rightEyeHorizontalSpan * (1 - alpha) +
+      current.rightEyeHorizontalSpan * alpha,
     eyeAspectRatio:
       previous.eyeAspectRatio * (1 - alpha) + current.eyeAspectRatio * alpha,
     mouthAspectRatio:
       previous.mouthAspectRatio * (1 - alpha) + current.mouthAspectRatio * alpha,
+    mouthOpeningRatio:
+      previous.mouthOpeningRatio * (1 - alpha) + current.mouthOpeningRatio * alpha,
     headPitchDegrees:
       previous.headPitchDegrees * (1 - alpha) + current.headPitchDegrees * alpha,
     headYawDegrees:
@@ -442,7 +469,10 @@ function getFaceReliability({
 }): {
   drowsinessSignalsReliable: boolean;
   eyeSignalsReliable: boolean;
+  yawnSignalsReliable: boolean;
   lookAwayOrProfile: boolean;
+  profileMode: boolean;
+  severeProfile: boolean;
 } {
   const intensity = adaptiveIntensityTuning[settings.adaptiveIntensity];
   const lookAwayOrProfile = settings.adaptiveDetectionEnabled
@@ -451,19 +481,35 @@ function getFaceReliability({
   const profileAngle = settings.adaptiveDetectionEnabled
     ? headDeviation.yawDegrees >= intensity.profileDegrees
     : headDeviation.yawDegrees >= 40;
+  const profileMode =
+    headDeviation.yawDegrees >= PROFILE_EYE_SELECTION_YAW_DEGREES || profileAngle;
+  const severeProfile = headDeviation.yawDegrees >= PROFILE_YAW_LIMIT_DEGREES;
   const eyeAverage = Math.max(metrics.eyeAspectRatio, 0.001);
   const eyeAsymmetryRatio =
     Math.abs(metrics.leftEyeAspectRatio - metrics.rightEyeAspectRatio) / eyeAverage;
   const oneEyeClearlyOpen =
     Math.max(metrics.leftEyeAspectRatio, metrics.rightEyeAspectRatio) >
     eyeClosureThreshold * 1.32;
-  const asymmetricEyeRead = eyeAsymmetryRatio > 0.46 && oneEyeClearlyOpen;
-  const eyeSignalsReliable = !profileAngle && !asymmetricEyeRead;
+  const visibleEyeDominance =
+    Math.max(metrics.leftEyeHorizontalSpan, metrics.rightEyeHorizontalSpan) /
+    Math.max(
+      Math.min(metrics.leftEyeHorizontalSpan, metrics.rightEyeHorizontalSpan),
+      0.0001,
+    );
+  const hasDominantVisibleEye =
+    profileMode && visibleEyeDominance >= PROFILE_EYE_WIDTH_DOMINANCE_RATIO;
+  const asymmetricEyeRead =
+    eyeAsymmetryRatio > 0.46 && oneEyeClearlyOpen && !hasDominantVisibleEye;
+  const eyeSignalsReliable = !severeProfile && !asymmetricEyeRead;
+  const yawnSignalsReliable = !severeProfile;
 
   return {
-    drowsinessSignalsReliable: !lookAwayOrProfile,
+    drowsinessSignalsReliable: !severeProfile,
     eyeSignalsReliable,
+    yawnSignalsReliable,
     lookAwayOrProfile,
+    profileMode,
+    severeProfile,
   };
 }
 
@@ -636,16 +682,27 @@ export function analyzeDrowsinessFrame({
     smoothedMetrics.leftEyeAspectRatio < effectiveThresholds.eyeClosureThreshold &&
     smoothedMetrics.rightEyeAspectRatio < effectiveThresholds.eyeClosureThreshold;
   const averageEyesClosed =
+    !faceReliability.profileMode &&
     smoothedMetrics.eyeAspectRatio < effectiveThresholds.eyeClosureThreshold &&
     Math.max(smoothedMetrics.leftEyeAspectRatio, smoothedMetrics.rightEyeAspectRatio) <
       effectiveThresholds.eyeClosureThreshold * 1.28;
+  const profileVisibleEyeClosed =
+    faceReliability.profileMode &&
+    smoothedMetrics.eyeAspectRatio < effectiveThresholds.eyeClosureThreshold;
   const eyeClosed =
     faceReliability.drowsinessSignalsReliable &&
     faceReliability.eyeSignalsReliable &&
-    (bothEyesClosed || averageEyesClosed);
+    (bothEyesClosed || averageEyesClosed || profileVisibleEyeClosed);
+  const frontalYawn = smoothedMetrics.mouthAspectRatio > effectiveThresholds.yawnThreshold;
+  const profileYawn =
+    faceReliability.profileMode &&
+    smoothedMetrics.mouthAspectRatio >
+      effectiveThresholds.yawnThreshold * PROFILE_YAWN_THRESHOLD_SCALE &&
+    smoothedMetrics.mouthOpeningRatio > PROFILE_YAWN_MOUTH_OPENING_RATIO;
   const yawning =
     faceReliability.drowsinessSignalsReliable &&
-    smoothedMetrics.mouthAspectRatio > effectiveThresholds.yawnThreshold;
+    faceReliability.yawnSignalsReliable &&
+    (faceReliability.profileMode ? profileYawn : frontalYawn);
   const headTilted =
     faceReliability.drowsinessSignalsReliable &&
     (headDeviation.pitchDegrees > effectiveThresholds.headTiltThresholdDegrees ||

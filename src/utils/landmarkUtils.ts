@@ -27,6 +27,11 @@ const MOUTH = {
   lowerLip: 14,
 } as const;
 
+const FACE_SCALE = {
+  forehead: 10,
+  chin: 152,
+} as const;
+
 const MOVEMENT_SAMPLE_INDICES = [1, 33, 61, 133, 152, 263, 291, 362] as const;
 
 function getPoint(landmarks: readonly NormalizedLandmark[], index: number): Point2D {
@@ -48,10 +53,7 @@ export function calculateEyeAspectRatio(
   side: 'left' | 'right',
 ): number {
   const eye = side === 'left' ? LEFT_EYE : RIGHT_EYE;
-  const horizontal = distance(
-    getPoint(landmarks, eye.outer),
-    getPoint(landmarks, eye.inner),
-  );
+  const horizontal = calculateEyeHorizontalSpan(landmarks, side);
 
   if (horizontal === 0) {
     return 0;
@@ -67,6 +69,15 @@ export function calculateEyeAspectRatio(
   );
 
   return (verticalOuter + verticalInner) / (2 * horizontal);
+}
+
+export function calculateEyeHorizontalSpan(
+  landmarks: readonly NormalizedLandmark[],
+  side: 'left' | 'right',
+): number {
+  const eye = side === 'left' ? LEFT_EYE : RIGHT_EYE;
+
+  return distance(getPoint(landmarks, eye.outer), getPoint(landmarks, eye.inner));
 }
 
 export function calculateMouthAspectRatio(
@@ -87,6 +98,26 @@ export function calculateMouthAspectRatio(
   );
 
   return vertical / horizontal;
+}
+
+export function calculateMouthOpeningRatio(
+  landmarks: readonly NormalizedLandmark[],
+): number {
+  const faceHeight = distance(
+    getPoint(landmarks, FACE_SCALE.forehead),
+    getPoint(landmarks, FACE_SCALE.chin),
+  );
+
+  if (faceHeight === 0) {
+    return 0;
+  }
+
+  const vertical = distance(
+    getPoint(landmarks, MOUTH.upperLip),
+    getPoint(landmarks, MOUTH.lowerLip),
+  );
+
+  return vertical / faceHeight;
 }
 
 export function calculateLandmarkMovement(

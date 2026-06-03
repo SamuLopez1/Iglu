@@ -60,7 +60,10 @@ export function CameraView({
     condition: lightingAnalysis.condition,
     intensity: screenLightIntensity,
   });
-  const screenLightValues = getScreenLightRenderValues(screenLightIntensity);
+  const screenLightValues = getScreenLightRenderValues(
+    screenLightIntensity,
+    visibilityMode,
+  );
   const videoStyle = useMemo<CSSProperties>(
     () => ({
       filter: getVisibilityVideoFilter({
