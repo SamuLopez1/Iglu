@@ -37,6 +37,30 @@ const getCameraErrorMessage = (error: unknown): string => {
   return 'No se pudo iniciar la cámara.';
 };
 
+function getPreferredVideoConstraints(): MediaTrackConstraints {
+  const isPortraitViewport =
+    window.matchMedia?.('(orientation: portrait)').matches ??
+    window.innerHeight >= window.innerWidth;
+
+  if (isPortraitViewport) {
+    return {
+      facingMode: 'user',
+      width: { ideal: 720 },
+      height: { ideal: 1280 },
+      aspectRatio: { ideal: 9 / 16 },
+      frameRate: { ideal: 30, max: 30 },
+    };
+  }
+
+  return {
+    facingMode: 'user',
+    width: { ideal: 1280 },
+    height: { ideal: 720 },
+    aspectRatio: { ideal: 16 / 9 },
+    frameRate: { ideal: 30, max: 30 },
+  };
+}
+
 export function useCamera({
   cameraEnhancementEnabled = true,
 }: UseCameraOptions = {}): UseCameraResult {
@@ -76,12 +100,7 @@ export function useCamera({
 
     try {
       const mediaStream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: 'user',
-          width: { ideal: 1280 },
-          height: { ideal: 720 },
-          frameRate: { ideal: 30, max: 30 },
-        },
+        video: getPreferredVideoConstraints(),
         audio: false,
       });
 

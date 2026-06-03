@@ -4,8 +4,11 @@ import type {
 } from './visibility.types';
 
 export type DetectionSensitivity = 'low' | 'medium' | 'high';
+export type AdaptiveDetectionIntensity = 'relaxed' | 'balanced' | 'intense';
 
 export interface DrowsinessSettings {
+  adaptiveDetectionEnabled: boolean;
+  adaptiveIntensity: AdaptiveDetectionIntensity;
   eyeClosureThreshold: number;
   eyeClosureDurationMs: number;
   yawnThreshold: number;
@@ -22,8 +25,10 @@ export interface DrowsinessSettings {
 }
 
 export const defaultDrowsinessSettings: DrowsinessSettings = {
+  adaptiveDetectionEnabled: true,
+  adaptiveIntensity: 'intense',
   eyeClosureThreshold: 0.19,
-  eyeClosureDurationMs: 1500,
+  eyeClosureDurationMs: 1300,
   yawnThreshold: 0.48,
   headTiltThresholdDegrees: 24,
   stillnessThreshold: 0.0018,

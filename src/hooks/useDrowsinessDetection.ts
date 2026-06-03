@@ -8,7 +8,11 @@ import {
   type DrowsinessRuntimeState,
 } from '../services/drowsinessAnalyzer';
 import { FaceDetectionService } from '../services/faceDetectionService';
-import type { DrowsinessAnalysis, FacialMetrics } from '../types/detection.types';
+import {
+  defaultAdaptiveDrowsinessProfile,
+  type DrowsinessAnalysis,
+  type FacialMetrics,
+} from '../types/detection.types';
 import type { DrowsinessSettings } from '../types/settings.types';
 
 interface UseDrowsinessDetectionOptions {
@@ -39,6 +43,7 @@ const initialAnalysis: DrowsinessAnalysis = {
   },
   blinkCountLastWindow: 0,
   shouldTriggerAlert: false,
+  adaptiveProfile: defaultAdaptiveDrowsinessProfile,
 };
 
 const initialState: DrowsinessDetectionState = {

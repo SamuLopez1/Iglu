@@ -1,9 +1,12 @@
 import type { FaceLandmarkerResult, NormalizedLandmark } from '@mediapipe/tasks-vision';
 
-import type {
-  DrowsinessAnalysis,
-  DrowsinessSignalDurations,
-  FacialMetrics,
+import {
+  defaultAdaptiveDrowsinessProfile,
+  type AdaptiveDrowsinessProfile,
+  type AdaptiveDrowsinessThresholds,
+  type DrowsinessAnalysis,
+  type DrowsinessSignalDurations,
+  type FacialMetrics,
 } from '../types/detection.types';
 import type { DrowsinessSettings } from '../types/settings.types';
 import {
@@ -45,6 +48,26 @@ export function analyzeFacialMetrics({
   };
 }
 
+interface AdaptiveBaseline {
+  sampleCount: number;
+  eyeAspectRatio: number | null;
+  mouthAspectRatio: number | null;
+  headPitchDegrees: number | null;
+  headYawDegrees: number | null;
+  headRollDegrees: number | null;
+  movementAmount: number | null;
+}
+
+const initialAdaptiveBaseline: AdaptiveBaseline = {
+  sampleCount: 0,
+  eyeAspectRatio: null,
+  mouthAspectRatio: null,
+  headPitchDegrees: null,
+  headYawDegrees: null,
+  headRollDegrees: null,
+  movementAmount: null,
+};
+
 export interface DrowsinessRuntimeState {
   fatigueScore: number;
   lastTimestampMs: number | null;
@@ -56,6 +79,7 @@ export interface DrowsinessRuntimeState {
   wasEyeClosed: boolean;
   blinkTimestampsMs: number[];
   smoothedMetrics: FacialMetrics | null;
+  adaptiveBaseline: AdaptiveBaseline;
 }
 
 export const initialDrowsinessRuntimeState: DrowsinessRuntimeState = {
@@ -69,6 +93,7 @@ export const initialDrowsinessRuntimeState: DrowsinessRuntimeState = {
   wasEyeClosed: false,
   blinkTimestampsMs: [],
   smoothedMetrics: null,
+  adaptiveBaseline: initialAdaptiveBaseline,
 };
 
 interface AnalyzeDrowsinessFrameOptions {
@@ -88,11 +113,101 @@ const MIN_BLINK_DURATION_MS = 80;
 const MAX_BLINK_DURATION_MS = 900;
 const DROWSY_SCORE_THRESHOLD = 70;
 const POSSIBLE_FATIGUE_SCORE_THRESHOLD = 38;
+const ADAPTIVE_WARMUP_SAMPLE_COUNT = 24;
+const ADAPTIVE_READY_SAMPLE_COUNT = 90;
 
-const sensitivityMultiplier: Record<DrowsinessSettings['sensitivity'], number> = {
-  low: 1.16,
-  medium: 1,
-  high: 0.86,
+interface SensitivityTuning {
+  eyeThresholdScale: number;
+  yawnThresholdScale: number;
+  headTiltThresholdScale: number;
+  stillnessThresholdScale: number;
+  durationScale: number;
+  scoreScale: number;
+}
+
+const sensitivityTuning: Record<
+  DrowsinessSettings['sensitivity'],
+  SensitivityTuning
+> = {
+  low: {
+    eyeThresholdScale: 0.92,
+    yawnThresholdScale: 1.12,
+    headTiltThresholdScale: 1.14,
+    stillnessThresholdScale: 0.82,
+    durationScale: 1.18,
+    scoreScale: 0.9,
+  },
+  medium: {
+    eyeThresholdScale: 1,
+    yawnThresholdScale: 1,
+    headTiltThresholdScale: 1,
+    stillnessThresholdScale: 1,
+    durationScale: 1,
+    scoreScale: 1,
+  },
+  high: {
+    eyeThresholdScale: 1.08,
+    yawnThresholdScale: 0.9,
+    headTiltThresholdScale: 0.88,
+    stillnessThresholdScale: 1.18,
+    durationScale: 0.84,
+    scoreScale: 1.12,
+  },
+};
+
+interface AdaptiveIntensityTuning {
+  eyeClosureRatio: number;
+  yawnFloorScale: number;
+  yawnOffset: number;
+  headTiltDegrees: number;
+  lookAwayDegrees: number;
+  profileDegrees: number;
+  stillnessManualScale: number;
+  stillnessBaselineRatio: number;
+  eyeClosureDurationScale: number;
+  scoreScale: number;
+}
+
+const adaptiveIntensityTuning: Record<
+  DrowsinessSettings['adaptiveIntensity'],
+  AdaptiveIntensityTuning
+> = {
+  relaxed: {
+    eyeClosureRatio: 0.62,
+    yawnFloorScale: 0.98,
+    yawnOffset: 0.22,
+    headTiltDegrees: 21,
+    lookAwayDegrees: 30,
+    profileDegrees: 40,
+    stillnessManualScale: 0.82,
+    stillnessBaselineRatio: 0.38,
+    eyeClosureDurationScale: 1.08,
+    scoreScale: 0.9,
+  },
+  balanced: {
+    eyeClosureRatio: 0.68,
+    yawnFloorScale: 0.9,
+    yawnOffset: 0.18,
+    headTiltDegrees: 18,
+    lookAwayDegrees: 27,
+    profileDegrees: 36,
+    stillnessManualScale: 1,
+    stillnessBaselineRatio: 0.48,
+    eyeClosureDurationScale: 0.9,
+    scoreScale: 1,
+  },
+  intense: {
+    eyeClosureRatio: 0.74,
+    yawnFloorScale: 0.78,
+    yawnOffset: 0.14,
+    headTiltDegrees: 14.5,
+    lookAwayDegrees: 24,
+    profileDegrees: 32,
+    stillnessManualScale: 1.18,
+    stillnessBaselineRatio: 0.62,
+    eyeClosureDurationScale: 0.72,
+    scoreScale: 1.16,
+  },
 };
 
 function smoothMetrics(
@@ -125,6 +240,319 @@ function smoothMetrics(
   };
 }
 
+function interpolate(start: number, end: number, amount: number): number {
+  return start + (end - start) * amount;
+}
+
+function weightedAverage(
+  previous: number | null,
+  current: number,
+  alpha: number,
+): number {
+  if (previous === null) {
+    return current;
+  }
+
+  return previous * (1 - alpha) + current * alpha;
+}
+
+function getManualThresholds(
+  settings: DrowsinessSettings,
+): AdaptiveDrowsinessThresholds {
+  const tuning = sensitivityTuning[settings.sensitivity];
+
+  return {
+    eyeClosureThreshold: clamp(
+      settings.eyeClosureThreshold * tuning.eyeThresholdScale,
+      0.1,
+      0.36,
+    ),
+    eyeClosureDurationMs: clamp(
+      settings.eyeClosureDurationMs * tuning.durationScale,
+      450,
+      4000,
+    ),
+    yawnThreshold: clamp(settings.yawnThreshold * tuning.yawnThresholdScale, 0.24, 0.9),
+    headTiltThresholdDegrees: clamp(
+      settings.headTiltThresholdDegrees * tuning.headTiltThresholdScale,
+      9,
+      50,
+    ),
+    stillnessThreshold: clamp(
+      settings.stillnessThreshold * tuning.stillnessThresholdScale,
+      0.0004,
+      0.008,
+    ),
+  };
+}
+
+function getCalibrationConfidence(baseline: AdaptiveBaseline): number {
+  return clamp(baseline.sampleCount / ADAPTIVE_READY_SAMPLE_COUNT, 0, 1);
+}
+
+function getEffectiveThresholds(
+  settings: DrowsinessSettings,
+  baseline: AdaptiveBaseline,
+  manualThresholds: AdaptiveDrowsinessThresholds,
+): AdaptiveDrowsinessThresholds {
+  if (!settings.adaptiveDetectionEnabled) {
+    return manualThresholds;
+  }
+
+  const intensity = adaptiveIntensityTuning[settings.adaptiveIntensity];
+  const confidence = getCalibrationConfidence(baseline);
+
+  const adaptiveEyeThreshold =
+    baseline.eyeAspectRatio === null
+      ? manualThresholds.eyeClosureThreshold
+      : clamp(
+          baseline.eyeAspectRatio * intensity.eyeClosureRatio,
+          manualThresholds.eyeClosureThreshold * 0.78,
+          manualThresholds.eyeClosureThreshold * 1.35,
+        );
+  const adaptiveYawnThreshold =
+    baseline.mouthAspectRatio === null
+      ? manualThresholds.yawnThreshold
+      : clamp(
+          baseline.mouthAspectRatio + intensity.yawnOffset,
+          manualThresholds.yawnThreshold * intensity.yawnFloorScale,
+          manualThresholds.yawnThreshold * 1.12,
+        );
+  const adaptiveHeadTiltThreshold = clamp(
+    intensity.headTiltDegrees,
+    manualThresholds.headTiltThresholdDegrees * 0.5,
+    manualThresholds.headTiltThresholdDegrees * 1.05,
+  );
+  const adaptiveStillnessThreshold =
+    baseline.movementAmount === null
+      ? manualThresholds.stillnessThreshold
+      : clamp(
+          Math.max(
+            manualThresholds.stillnessThreshold * intensity.stillnessManualScale,
+            baseline.movementAmount * intensity.stillnessBaselineRatio,
+          ),
+          0.0004,
+          0.008,
+        );
+  const adaptiveEyeClosureDurationMs = clamp(
+    manualThresholds.eyeClosureDurationMs * intensity.eyeClosureDurationScale,
+    450,
+    4000,
+  );
+
+  return {
+    eyeClosureThreshold: interpolate(
+      manualThresholds.eyeClosureThreshold,
+      adaptiveEyeThreshold,
+      confidence,
+    ),
+    eyeClosureDurationMs: interpolate(
+      manualThresholds.eyeClosureDurationMs,
+      adaptiveEyeClosureDurationMs,
+      confidence,
+    ),
+    yawnThreshold: interpolate(
+      manualThresholds.yawnThreshold,
+      adaptiveYawnThreshold,
+      confidence,
+    ),
+    headTiltThresholdDegrees: interpolate(
+      manualThresholds.headTiltThresholdDegrees,
+      adaptiveHeadTiltThreshold,
+      confidence,
+    ),
+    stillnessThreshold: interpolate(
+      manualThresholds.stillnessThreshold,
+      adaptiveStillnessThreshold,
+      confidence,
+    ),
+  };
+}
+
+function getAdaptiveProfile(
+  settings: DrowsinessSettings,
+  baseline: AdaptiveBaseline,
+  effectiveThresholds: AdaptiveDrowsinessThresholds,
+): AdaptiveDrowsinessProfile {
+  if (!settings.adaptiveDetectionEnabled) {
+    return {
+      ...defaultAdaptiveDrowsinessProfile,
+      effectiveThresholds,
+    };
+  }
+
+  const confidence = getCalibrationConfidence(baseline);
+  const status =
+    baseline.sampleCount < ADAPTIVE_WARMUP_SAMPLE_COUNT
+      ? 'warming-up'
+      : confidence < 1
+        ? 'learning'
+        : 'ready';
+
+  return {
+    enabled: true,
+    status,
+    confidence,
+    sampleCount: baseline.sampleCount,
+    baselineEyeAspectRatio: baseline.eyeAspectRatio,
+    baselineMouthAspectRatio: baseline.mouthAspectRatio,
+    baselineHeadPitchDegrees: baseline.headPitchDegrees,
+    baselineHeadYawDegrees: baseline.headYawDegrees,
+    baselineHeadRollDegrees: baseline.headRollDegrees,
+    baselineMovementAmount: baseline.movementAmount,
+    effectiveThresholds,
+  };
+}
+
+function getHeadDeviation(
+  metrics: FacialMetrics,
+  baseline: AdaptiveBaseline,
+  settings: DrowsinessSettings,
+): { pitchDegrees: number; yawDegrees: number; rollDegrees: number } {
+  const baselinePitch =
+    settings.adaptiveDetectionEnabled && baseline.headPitchDegrees !== null
+      ? baseline.headPitchDegrees
+      : 0;
+  const baselineYaw =
+    settings.adaptiveDetectionEnabled && baseline.headYawDegrees !== null
+      ? baseline.headYawDegrees
+      : 0;
+  const baselineRoll =
+    settings.adaptiveDetectionEnabled && baseline.headRollDegrees !== null
+      ? baseline.headRollDegrees
+      : 0;
+
+  return {
+    pitchDegrees: Math.abs(metrics.headPitchDegrees - baselinePitch),
+    yawDegrees: Math.abs(metrics.headYawDegrees - baselineYaw),
+    rollDegrees: Math.abs(metrics.headRollDegrees - baselineRoll),
+  };
+}
+
+function getFaceReliability({
+  metrics,
+  settings,
+  headDeviation,
+  eyeClosureThreshold,
+}: {
+  metrics: FacialMetrics;
+  settings: DrowsinessSettings;
+  headDeviation: { pitchDegrees: number; yawDegrees: number; rollDegrees: number };
+  eyeClosureThreshold: number;
+}): {
+  drowsinessSignalsReliable: boolean;
+  eyeSignalsReliable: boolean;
+  lookAwayOrProfile: boolean;
+} {
+  const intensity = adaptiveIntensityTuning[settings.adaptiveIntensity];
+  const lookAwayOrProfile = settings.adaptiveDetectionEnabled
+    ? headDeviation.yawDegrees >= intensity.lookAwayDegrees
+    : headDeviation.yawDegrees >= 30;
+  const profileAngle = settings.adaptiveDetectionEnabled
+    ? headDeviation.yawDegrees >= intensity.profileDegrees
+    : headDeviation.yawDegrees >= 40;
+  const eyeAverage = Math.max(metrics.eyeAspectRatio, 0.001);
+  const eyeAsymmetryRatio =
+    Math.abs(metrics.leftEyeAspectRatio - metrics.rightEyeAspectRatio) / eyeAverage;
+  const oneEyeClearlyOpen =
+    Math.max(metrics.leftEyeAspectRatio, metrics.rightEyeAspectRatio) >
+    eyeClosureThreshold * 1.32;
+  const asymmetricEyeRead = eyeAsymmetryRatio > 0.46 && oneEyeClearlyOpen;
+  const eyeSignalsReliable = !profileAngle && !asymmetricEyeRead;
+
+  return {
+    drowsinessSignalsReliable: !lookAwayOrProfile,
+    eyeSignalsReliable,
+    lookAwayOrProfile,
+  };
+}
+
+function updateAdaptiveBaseline({
+  previousBaseline,
+  metrics,
+  settings,
+  effectiveThresholds,
+  fatigueScore,
+  headDeviation,
+}: {
+  previousBaseline: AdaptiveBaseline;
+  metrics: FacialMetrics;
+  settings: DrowsinessSettings;
+  effectiveThresholds: AdaptiveDrowsinessThresholds;
+  fatigueScore: number;
+  headDeviation: { pitchDegrees: number; yawDegrees: number; rollDegrees: number };
+}): AdaptiveBaseline {
+  if (!settings.adaptiveDetectionEnabled) {
+    return previousBaseline;
+  }
+
+  const isWarmup = previousBaseline.sampleCount < ADAPTIVE_WARMUP_SAMPLE_COUNT;
+  const eyesUsable =
+    metrics.eyeAspectRatio >
+    effectiveThresholds.eyeClosureThreshold * (isWarmup ? 0.95 : 1.12);
+  const mouthUsable =
+    metrics.mouthAspectRatio <
+    effectiveThresholds.yawnThreshold * (isWarmup ? 1.05 : 0.9);
+  const headUsable =
+    Math.max(
+      headDeviation.pitchDegrees,
+      headDeviation.yawDegrees,
+      headDeviation.rollDegrees,
+    ) <
+    effectiveThresholds.headTiltThresholdDegrees * (isWarmup ? 1.25 : 0.72);
+  const fatigueUsable = fatigueScore < (isWarmup ? 68 : 38);
+
+  if (!isWarmup && (!eyesUsable || !mouthUsable || !headUsable || !fatigueUsable)) {
+    return previousBaseline;
+  }
+
+  const sampleCount = previousBaseline.sampleCount + 1;
+  const fastAlpha = sampleCount < 36 ? 0.16 : 0.04;
+  const slowAlpha = sampleCount < 36 ? 0.05 : 0.012;
+  const poseAlpha = sampleCount < 36 ? 0.1 : 0.025;
+  const movementAlpha = sampleCount < 36 ? 0.12 : 0.04;
+
+  return {
+    sampleCount,
+    eyeAspectRatio: weightedAverage(
+      previousBaseline.eyeAspectRatio,
+      metrics.eyeAspectRatio,
+      previousBaseline.eyeAspectRatio !== null &&
+        metrics.eyeAspectRatio < previousBaseline.eyeAspectRatio
+        ? slowAlpha
+        : fastAlpha,
+    ),
+    mouthAspectRatio: weightedAverage(
+      previousBaseline.mouthAspectRatio,
+      metrics.mouthAspectRatio,
+      previousBaseline.mouthAspectRatio !== null &&
+        metrics.mouthAspectRatio > previousBaseline.mouthAspectRatio
+        ? slowAlpha
+        : fastAlpha,
+    ),
+    headPitchDegrees: weightedAverage(
+      previousBaseline.headPitchDegrees,
+      metrics.headPitchDegrees,
+      poseAlpha,
+    ),
+    headYawDegrees: weightedAverage(
+      previousBaseline.headYawDegrees,
+      metrics.headYawDegrees,
+      poseAlpha,
+    ),
+    headRollDegrees: weightedAverage(
+      previousBaseline.headRollDegrees,
+      metrics.headRollDegrees,
+      poseAlpha,
+    ),
+    movementAmount: weightedAverage(
+      previousBaseline.movementAmount,
+      metrics.movementAmount,
+      movementAlpha,
+    ),
+  };
+}
+
 function getDuration(startedAtMs: number | null, timestampMs: number): number {
   return startedAtMs === null ? 0 : timestampMs - startedAtMs;
 }
@@ -150,12 +578,24 @@ export function analyzeDrowsinessFrame({
   settings,
   timestampMs,
 }: AnalyzeDrowsinessFrameOptions): AnalyzeDrowsinessFrameResult {
+  const manualThresholds = getManualThresholds(settings);
+  const effectiveThresholds = getEffectiveThresholds(
+    settings,
+    previousState.adaptiveBaseline,
+    manualThresholds,
+  );
+  const adaptiveProfile = getAdaptiveProfile(
+    settings,
+    previousState.adaptiveBaseline,
+    effectiveThresholds,
+  );
+
   if (!metrics) {
     return {
       analysis: {
         status: 'no-face',
         fatigueScore: previousState.fatigueScore,
-        activeSignals: ['No face detected'],
+        activeSignals: ['Rostro no detectado'],
         signalDurations: {
           eyesClosedMs: 0,
           yawningMs: 0,
@@ -164,6 +604,7 @@ export function analyzeDrowsinessFrame({
         },
         blinkCountLastWindow: previousState.blinkTimestampsMs.length,
         shouldTriggerAlert: false,
+        adaptiveProfile,
       },
       nextState: {
         ...previousState,
@@ -173,23 +614,45 @@ export function analyzeDrowsinessFrame({
     };
   }
 
-  const multiplier = sensitivityMultiplier[settings.sensitivity];
   const smoothedMetrics = smoothMetrics(previousState.smoothedMetrics, metrics);
   const elapsedMs =
     previousState.lastTimestampMs === null
       ? 16
       : Math.min(timestampMs - previousState.lastTimestampMs, 250);
   const elapsedSeconds = elapsedMs / 1000;
+  const headDeviation = getHeadDeviation(
+    smoothedMetrics,
+    previousState.adaptiveBaseline,
+    settings,
+  );
+  const faceReliability = getFaceReliability({
+    metrics: smoothedMetrics,
+    settings,
+    headDeviation,
+    eyeClosureThreshold: effectiveThresholds.eyeClosureThreshold,
+  });
 
-  const eyeClosedThreshold = settings.eyeClosureThreshold * multiplier;
-  const yawnThreshold = settings.yawnThreshold * multiplier;
-  const headTiltThreshold = settings.headTiltThresholdDegrees * multiplier;
-  const eyeClosed = smoothedMetrics.eyeAspectRatio < eyeClosedThreshold;
-  const yawning = smoothedMetrics.mouthAspectRatio > yawnThreshold;
+  const bothEyesClosed =
+    smoothedMetrics.leftEyeAspectRatio < effectiveThresholds.eyeClosureThreshold &&
+    smoothedMetrics.rightEyeAspectRatio < effectiveThresholds.eyeClosureThreshold;
+  const averageEyesClosed =
+    smoothedMetrics.eyeAspectRatio < effectiveThresholds.eyeClosureThreshold &&
+    Math.max(smoothedMetrics.leftEyeAspectRatio, smoothedMetrics.rightEyeAspectRatio) <
+      effectiveThresholds.eyeClosureThreshold * 1.28;
+  const eyeClosed =
+    faceReliability.drowsinessSignalsReliable &&
+    faceReliability.eyeSignalsReliable &&
+    (bothEyesClosed || averageEyesClosed);
+  const yawning =
+    faceReliability.drowsinessSignalsReliable &&
+    smoothedMetrics.mouthAspectRatio > effectiveThresholds.yawnThreshold;
   const headTilted =
-    Math.abs(smoothedMetrics.headPitchDegrees) > headTiltThreshold ||
-    Math.abs(smoothedMetrics.headRollDegrees) > headTiltThreshold;
-  const unusuallyStill = smoothedMetrics.movementAmount < settings.stillnessThreshold;
+    faceReliability.drowsinessSignalsReliable &&
+    (headDeviation.pitchDegrees > effectiveThresholds.headTiltThresholdDegrees ||
+      headDeviation.rollDegrees > effectiveThresholds.headTiltThresholdDegrees);
+  const unusuallyStill =
+    faceReliability.drowsinessSignalsReliable &&
+    smoothedMetrics.movementAmount < effectiveThresholds.stillnessThreshold;
 
   const eyesClosedStartedAtMs =
     eyeClosed && previousState.eyesClosedStartedAtMs === null
@@ -224,7 +687,10 @@ export function analyzeDrowsinessFrame({
         : null;
 
   const closedBlinkDurationMs =
-    !eyeClosed && previousState.wasEyeClosed
+    faceReliability.drowsinessSignalsReliable &&
+    faceReliability.eyeSignalsReliable &&
+    !eyeClosed &&
+    previousState.wasEyeClosed
       ? getDuration(previousState.eyeClosureStartedAtMs, timestampMs)
       : 0;
   const nextBlinkTimestamps = previousState.blinkTimestampsMs.filter(
@@ -246,59 +712,100 @@ export function analyzeDrowsinessFrame({
   };
 
   const activeSignals: string[] = [];
-  let fatigueScore = Math.max(0, previousState.fatigueScore - elapsedSeconds * 10);
-
-  if (eyeClosed) {
-    activeSignals.push('Eyes closed');
-    fatigueScore += elapsedSeconds * 34;
+  if (faceReliability.lookAwayOrProfile) {
+    activeSignals.push('Rostro fuera de angulo');
   }
 
-  if (signalDurations.eyesClosedMs >= settings.eyeClosureDurationMs) {
-    fatigueScore += elapsedSeconds * 46;
+  const adaptiveScoreScale = settings.adaptiveDetectionEnabled
+    ? interpolate(
+        1,
+        adaptiveIntensityTuning[settings.adaptiveIntensity].scoreScale,
+        adaptiveProfile.confidence,
+      )
+    : 1;
+  const scoreScale = sensitivityTuning[settings.sensitivity].scoreScale * adaptiveScoreScale;
+  const addScore = (amount: number) => {
+    fatigueScore += elapsedSeconds * amount * scoreScale;
+  };
+  let fatigueScore = Math.max(
+    0,
+    previousState.fatigueScore -
+      elapsedSeconds * (faceReliability.drowsinessSignalsReliable ? 10 : 18),
+  );
+
+  if (eyeClosed) {
+    activeSignals.push('Ojos cerrados');
+    addScore(34);
+  }
+
+  if (signalDurations.eyesClosedMs >= effectiveThresholds.eyeClosureDurationMs) {
+    addScore(46);
   }
 
   if (yawning) {
-    activeSignals.push('Yawning');
-    fatigueScore += elapsedSeconds * 18;
+    activeSignals.push('Bostezo');
+    addScore(18);
   }
 
   if (signalDurations.yawningMs >= 1400) {
-    fatigueScore += elapsedSeconds * 26;
+    addScore(26);
   }
 
   if (headTilted) {
-    activeSignals.push('Head tilt');
-    fatigueScore += elapsedSeconds * 18;
+    activeSignals.push('Cabeza inclinada');
+    addScore(18);
   }
 
   if (signalDurations.headTiltMs >= 1200) {
-    fatigueScore += elapsedSeconds * 22;
+    addScore(22);
   }
 
   if (signalDurations.stillnessMs >= settings.stillnessDurationMs) {
-    activeSignals.push('Low facial movement');
-    fatigueScore += elapsedSeconds * 12;
+    activeSignals.push('Bajo movimiento facial');
+    addScore(12);
   }
 
   if (nextBlinkTimestamps.length >= 5) {
-    activeSignals.push('Repeated blinking');
-    fatigueScore += elapsedSeconds * 20;
+    activeSignals.push('Parpadeo repetido');
+    addScore(20);
   }
 
   fatigueScore = clamp(fatigueScore, 0, 100);
 
   const shouldTriggerAlert =
-    fatigueScore >= DROWSY_SCORE_THRESHOLD ||
-    signalDurations.eyesClosedMs >= settings.eyeClosureDurationMs * 1.35;
+    faceReliability.drowsinessSignalsReliable &&
+    (fatigueScore >= DROWSY_SCORE_THRESHOLD ||
+      signalDurations.eyesClosedMs >= effectiveThresholds.eyeClosureDurationMs * 1.35);
+  const nextAdaptiveBaseline = updateAdaptiveBaseline({
+    previousBaseline: previousState.adaptiveBaseline,
+    metrics: smoothedMetrics,
+    settings,
+    effectiveThresholds,
+    fatigueScore,
+    headDeviation,
+  });
+  const nextEffectiveThresholds = getEffectiveThresholds(
+    settings,
+    nextAdaptiveBaseline,
+    manualThresholds,
+  );
+  const nextAdaptiveProfile = getAdaptiveProfile(
+    settings,
+    nextAdaptiveBaseline,
+    nextEffectiveThresholds,
+  );
 
   return {
     analysis: {
-      status: getStatus(fatigueScore, shouldTriggerAlert),
+      status: faceReliability.drowsinessSignalsReliable
+        ? getStatus(fatigueScore, shouldTriggerAlert)
+        : 'awake',
       fatigueScore,
       activeSignals,
       signalDurations,
       blinkCountLastWindow: nextBlinkTimestamps.length,
       shouldTriggerAlert,
+      adaptiveProfile: nextAdaptiveProfile,
     },
     nextState: {
       fatigueScore,
@@ -311,6 +818,7 @@ export function analyzeDrowsinessFrame({
       wasEyeClosed: eyeClosed,
       blinkTimestampsMs: nextBlinkTimestamps,
       smoothedMetrics,
+      adaptiveBaseline: nextAdaptiveBaseline,
     },
   };
 }

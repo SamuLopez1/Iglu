@@ -119,6 +119,7 @@ function App() {
             <SettingsPanel
               settings={settings}
               cameraEnhancement={camera.cameraEnhancement}
+              adaptiveProfile={detection.analysis.adaptiveProfile}
               onSettingsChange={setSettings}
             />
             <InfoSection title="Motor de detección">

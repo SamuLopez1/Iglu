@@ -90,7 +90,9 @@ export function CameraView({
     >
       <div
         className={`relative bg-black ${
-          isFullscreen ? 'h-[calc(100dvh-44px)]' : 'aspect-video'
+          isFullscreen
+            ? 'h-[calc(100dvh-44px)]'
+            : 'aspect-[9/16] max-h-[72dvh] sm:aspect-video sm:max-h-none'
         }`}
       >
         <video
