@@ -21,6 +21,10 @@ const DEFAULT_DESTINATION: RoutePoint = {
   lat: 4.6486,
   lng: -74.2479,
 };
+const DEMO_ORIGIN: RoutePoint = {
+  lat: 4.711,
+  lng: -74.0721,
+};
 
 function isValidCoordinate(point: RoutePoint): boolean {
   return (
@@ -59,6 +63,8 @@ export function NavigationView({
   });
   const mapboxReady = hasMapboxAccessToken();
   const secureContextWarning = getSecureContextWarning();
+  const gpsMessage =
+    gps.errorMessage ?? (gps.status === 'demo' ? null : secureContextWarning);
 
   const handleBuildRoute = useCallback(async () => {
     if (!gps.reading) {
@@ -128,7 +134,7 @@ export function NavigationView({
           gpsStatus={gps.status}
           gpsQuality={gps.quality}
           gpsReading={gps.reading}
-          gpsErrorMessage={gps.errorMessage ?? secureContextWarning}
+          gpsErrorMessage={gpsMessage}
           isGpsSupported={gps.isSupported}
           route={route}
           routeProgress={routeProgress}
@@ -138,6 +144,9 @@ export function NavigationView({
           mapboxReady={mapboxReady}
           onDestinationChange={setDestination}
           onStartGps={gps.startTracking}
+          onStartDemoGps={() => {
+            gps.startDemoTracking(DEMO_ORIGIN);
+          }}
           onStopGps={gps.stopTracking}
           onBuildRoute={() => {
             void handleBuildRoute();

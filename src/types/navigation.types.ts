@@ -4,6 +4,7 @@ export interface RoutePoint {
 }
 
 export type GpsQuality = 'good' | 'weak' | 'unavailable';
+export type GpsTrackingStatus = 'idle' | 'requesting' | 'tracking' | 'error' | 'demo';
 
 export interface GpsReading extends RoutePoint {
   accuracyMeters: number | null;

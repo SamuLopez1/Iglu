@@ -68,7 +68,8 @@ VITE_MAPBOX_ACCESS_TOKEN=tu_token_de_mapbox
 El mapa puede abrir sin token usando teselas abiertas, pero `Calcular ruta`
 requiere Mapbox Directions. En celulares, camara y GPS confiables requieren
 HTTPS fuera de `localhost`; usa un tunel HTTPS o una configuracion local segura
-para pruebas reales.
+para pruebas reales. Para una demo web desde laptop o una URL sin GPS real, usa
+`GPS demo` en la vista `Ruta` y luego `Calcular ruta`.
 
 Para probar desde un celular, ejecuta Vite escuchando en la red local:
 
@@ -326,7 +327,9 @@ Esto evita depender de un CDN en tiempo de ejecución.
 ## Asistente de Ruta GPS
 
 La vista `Ruta` usa `navigator.geolocation.watchPosition` con alta precision como
-fuente principal. Cuando el navegador no entrega `speed` o `heading`, la app los
+fuente principal. Si la alta precision no responde, intenta una lectura
+aproximada del navegador para facilitar pruebas web. Cuando el navegador no
+entrega `speed` o `heading`, la app los
 estima a partir de lecturas GPS consecutivas y muestra un estado degradado si la
 precision no es suficiente.
 
@@ -342,6 +345,8 @@ Limitaciones de esta primera version:
 - No recalcula automaticamente la ruta al desviarse.
 - En desktop puede funcionar como apoyo de desarrollo, pero la ubicacion suele
   venir de Wi-Fi/IP y no representa GPS de carretera.
+- El boton `GPS demo` fija un origen de prueba en Bogota para validar rutas en
+  navegador cuando no hay permiso, HTTPS o sensor GPS disponible.
 
 ## Mejoras Futuras
 
