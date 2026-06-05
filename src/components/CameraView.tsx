@@ -59,13 +59,15 @@ export function CameraView({
     : 'Pantalla completa';
   const lightingRecommendation = getLightingRecommendation(lightingAnalysis.condition);
   const showLightingBadge = isCameraReady && visibilityMode !== 'off';
-  const screenLightActive = shouldUseScreenLight({
-    visibilityMode,
-    lightingAnalysis,
-    intensity: screenLightIntensity,
-    faceDetected,
-    faceDetectionReady,
-  });
+  const screenLightActive =
+    isCameraReady &&
+    shouldUseScreenLight({
+      visibilityMode,
+      lightingAnalysis,
+      intensity: screenLightIntensity,
+      faceDetected,
+      faceDetectionReady,
+    });
   const screenLightValues = getScreenLightRenderValues({
     intensity: screenLightIntensity,
     visibilityMode,
