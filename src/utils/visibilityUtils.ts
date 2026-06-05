@@ -110,9 +110,9 @@ const screenLightValues: Record<ScreenLightIntensity, ScreenLightRenderValues> =
 };
 
 const NIGHT_SCREEN_LIGHT_EDGE_BOOST = {
-  edgeOpacity: 1.42,
-  centerOpacity: 1.12,
-  glowOpacity: 1.28,
+  edgeOpacity: 2.35,
+  centerOpacity: 1.62,
+  glowOpacity: 2.05,
 } as const;
 
 export function getLightingPixelThresholds(): {
@@ -278,17 +278,17 @@ export function getScreenLightRenderValues(
     edgeOpacity: clamp(
       values.edgeOpacity * NIGHT_SCREEN_LIGHT_EDGE_BOOST.edgeOpacity,
       0,
-      0.72,
+      1,
     ),
     centerOpacity: clamp(
       values.centerOpacity * NIGHT_SCREEN_LIGHT_EDGE_BOOST.centerOpacity,
       0,
-      0.16,
+      0.3,
     ),
     glowOpacity: clamp(
       values.glowOpacity * NIGHT_SCREEN_LIGHT_EDGE_BOOST.glowOpacity,
       0,
-      0.78,
+      1,
     ),
   };
 }
