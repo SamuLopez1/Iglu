@@ -25,6 +25,8 @@ interface CameraViewProps {
   visibilityMode: VisibilityMode;
   screenLightIntensity: ScreenLightIntensity;
   videoEnhancementEnabled: boolean;
+  faceDetected: boolean;
+  faceDetectionReady: boolean;
   onStartCamera: () => void;
 }
 
@@ -43,6 +45,8 @@ export function CameraView({
   visibilityMode,
   screenLightIntensity,
   videoEnhancementEnabled,
+  faceDetected,
+  faceDetectionReady,
   onStartCamera,
 }: CameraViewProps) {
   const cameraShellRef = useRef<HTMLElement | null>(null);
@@ -57,13 +61,18 @@ export function CameraView({
   const showLightingBadge = isCameraReady && visibilityMode !== 'off';
   const screenLightActive = shouldUseScreenLight({
     visibilityMode,
-    condition: lightingAnalysis.condition,
+    lightingAnalysis,
     intensity: screenLightIntensity,
+    faceDetected,
+    faceDetectionReady,
   });
-  const screenLightValues = getScreenLightRenderValues(
-    screenLightIntensity,
+  const screenLightValues = getScreenLightRenderValues({
+    intensity: screenLightIntensity,
     visibilityMode,
-  );
+    lightingAnalysis,
+    faceDetected,
+    faceDetectionReady,
+  });
   const videoStyle = useMemo<CSSProperties>(
     () => ({
       filter: getVisibilityVideoFilter({

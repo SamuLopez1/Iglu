@@ -18,6 +18,8 @@ navegador, los frames no se guardan y no se envían datos faciales a servidores.
 - WebRTC `getUserMedia` para acceso a cámara
 - Canvas 2D para análisis liviano de iluminación
 - Web Audio API para alertas sonoras
+- MapLibre GL para mapa en navegador
+- Mapbox Directions API para calculo de rutas
 - TailwindCSS 4 para estilos
 - ESLint + Prettier para calidad de código
 
@@ -56,6 +58,17 @@ http://localhost:5173/
 ```
 
 En la app, pulsa `Iniciar cámara` y acepta el permiso de cámara.
+
+Para calcular rutas GPS, crea un archivo `.env.local` basado en `.env.example`:
+
+```bash
+VITE_MAPBOX_ACCESS_TOKEN=tu_token_de_mapbox
+```
+
+El mapa puede abrir sin token usando teselas abiertas, pero `Calcular ruta`
+requiere Mapbox Directions. En celulares, camara y GPS confiables requieren
+HTTPS fuera de `localhost`; usa un tunel HTTPS o una configuracion local segura
+para pruebas reales.
 
 Para probar desde un celular, ejecuta Vite escuchando en la red local:
 
@@ -97,6 +110,8 @@ En macOS o Linux, usa `npm run ...` en lugar de `npm.cmd run ...`.
 - Estado visual de detección: despierto, posible fatiga, somnolencia, sin rostro
   o cámara no disponible.
 - Modo pantalla completa para uso desde celular.
+- Vista `Ruta` con GPS real, mapa, velocidad, rumbo, progreso de ruta, siguiente
+  giro y alertas de curvas cerradas.
 - Modo Visibilidad Móvil para baja luz, contraluz e iluminación insuficiente.
 
 ## Modo Visibilidad Móvil
@@ -155,6 +170,11 @@ Intensidades disponibles:
 En modo `auto`, se activa automáticamente cuando la condición es baja luz o luz
 insuficiente. En modo `night`, se activa manualmente siempre que la intensidad no
 sea `off`.
+
+La intensidad efectiva también escala sola: sube según qué tan oscuro esté el
+video y aumenta otro tramo si el modelo ya cargó pero no logra reconocer un
+rostro. El selector `low`, `medium` o `high` funciona como base; `off` siempre
+mantiene la luz apagada.
 
 ### Capacidades reales de cámara
 
@@ -239,24 +259,32 @@ src/
     FatiguePanel.tsx
     InfoSection.tsx
     MetricsPanel.tsx
+    NavigationView.tsx
+    RouteAssistantPanel.tsx
+    RouteMapView.tsx
     SettingsPanel.tsx
   hooks/
     useAudioAlert.ts
     useCamera.ts
     useDrowsinessDetection.ts
     useFullscreen.ts
+    useGpsTracking.ts
     useLightingAnalysis.ts
+    useRouteProgress.ts
   services/
     drowsinessAnalyzer.ts
     faceDetectionService.ts
+    routeService.ts
   types/
     detection.types.ts
+    navigation.types.ts
     settings.types.ts
     visibility.types.ts
   utils/
     cameraEnhancements.ts
     landmarkUtils.ts
     mathUtils.ts
+    routeGeometryUtils.ts
     visibilityUtils.ts
   App.tsx
   main.tsx
@@ -294,6 +322,26 @@ Esto evita depender de un CDN en tiempo de ejecución.
 - Algunos navegadores requieren interacción del usuario antes de permitir audio.
 - El sistema no ha sido validado contra datasets clínicos o automotrices de
   somnolencia.
+
+## Asistente de Ruta GPS
+
+La vista `Ruta` usa `navigator.geolocation.watchPosition` con alta precision como
+fuente principal. Cuando el navegador no entrega `speed` o `heading`, la app los
+estima a partir de lecturas GPS consecutivas y muestra un estado degradado si la
+precision no es suficiente.
+
+El origen de la ruta es la ubicacion GPS actual. El destino se ingresa como
+coordenadas lat/lng y la ruta se calcula con Mapbox Directions. La app proyecta
+la posicion GPS sobre la ruta para estimar distancia restante, proximo giro,
+salida de ruta y curvas cerradas dentro de la ventana de advertencia.
+
+Limitaciones de esta primera version:
+
+- No incluye trafico en vivo, reportes comunitarios ni limites oficiales de
+  velocidad.
+- No recalcula automaticamente la ruta al desviarse.
+- En desktop puede funcionar como apoyo de desarrollo, pero la ubicacion suele
+  venir de Wi-Fi/IP y no representa GPS de carretera.
 
 ## Mejoras Futuras
 

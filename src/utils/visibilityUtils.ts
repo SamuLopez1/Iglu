@@ -51,7 +51,13 @@ interface VisibilityFilterOptions {
 
 interface ScreenLightOptions {
   visibilityMode: VisibilityMode;
-  condition: LightingCondition;
+  lightingAnalysis: LightingAnalysisResult;
+  intensity: ScreenLightIntensity;
+  faceDetected: boolean;
+  faceDetectionReady: boolean;
+}
+
+interface ScreenLightRenderOptions extends ScreenLightOptions {
   intensity: ScreenLightIntensity;
 }
 
@@ -113,6 +119,20 @@ const NIGHT_SCREEN_LIGHT_EDGE_BOOST = {
   edgeOpacity: 2.35,
   centerOpacity: 1.62,
   glowOpacity: 2.05,
+} as const;
+
+const SCREEN_LIGHT_ADAPTIVE_MAX_VALUES = {
+  edgeOpacity: 1,
+  centerOpacity: 0.3,
+  glowOpacity: 1,
+} as const;
+
+const DARKNESS_SEVERITY_THRESHOLDS = {
+  brightnessStart: 0.46,
+  brightnessCritical: 0.12,
+  darkRatioStart: 0.32,
+  darkRatioCritical: 0.82,
+  missingFaceBoost: 0.28,
 } as const;
 
 export function getLightingPixelThresholds(): {
@@ -246,8 +266,10 @@ export function getLightingRecommendation(
 
 export function shouldUseScreenLight({
   visibilityMode,
-  condition,
+  lightingAnalysis,
   intensity,
+  faceDetected,
+  faceDetectionReady,
 }: ScreenLightOptions): boolean {
   if (visibilityMode === 'off' || intensity === 'off') {
     return false;
@@ -258,13 +280,43 @@ export function shouldUseScreenLight({
   }
 
   if (visibilityMode === 'backlight') {
-    return condition === 'backlit' || condition === 'low-light';
+    return (
+      lightingAnalysis.condition === 'backlit' ||
+      lightingAnalysis.condition === 'low-light'
+    );
   }
 
-  return condition === 'low-light' || condition === 'insufficient';
+  return (
+    lightingAnalysis.condition === 'low-light' ||
+    lightingAnalysis.condition === 'insufficient' ||
+    (faceDetectionReady &&
+      !faceDetected &&
+      (lightingAnalysis.condition !== 'normal' ||
+        lightingAnalysis.brightness < DARKNESS_SEVERITY_THRESHOLDS.brightnessStart))
+  );
 }
 
-export function getScreenLightRenderValues(
+function interpolateLightValue(start: number, end: number, amount: number): number {
+  return start + (end - start) * amount;
+}
+
+function interpolateScreenLightValues(
+  start: ScreenLightRenderValues,
+  end: ScreenLightRenderValues,
+  amount: number,
+): ScreenLightRenderValues {
+  return {
+    edgeOpacity: interpolateLightValue(start.edgeOpacity, end.edgeOpacity, amount),
+    centerOpacity: interpolateLightValue(
+      start.centerOpacity,
+      end.centerOpacity,
+      amount,
+    ),
+    glowOpacity: interpolateLightValue(start.glowOpacity, end.glowOpacity, amount),
+  };
+}
+
+function getBaseScreenLightValues(
   intensity: ScreenLightIntensity,
   visibilityMode: VisibilityMode,
 ): ScreenLightRenderValues {
@@ -291,4 +343,53 @@ export function getScreenLightRenderValues(
       1,
     ),
   };
+}
+
+function getLightingDarknessSeverity({
+  brightness,
+  darkPixelRatio,
+  condition,
+}: LightingAnalysisResult): number {
+  const brightnessSeverity =
+    (DARKNESS_SEVERITY_THRESHOLDS.brightnessStart - brightness) /
+    (DARKNESS_SEVERITY_THRESHOLDS.brightnessStart -
+      DARKNESS_SEVERITY_THRESHOLDS.brightnessCritical);
+  const darkPixelSeverity =
+    (darkPixelRatio - DARKNESS_SEVERITY_THRESHOLDS.darkRatioStart) /
+    (DARKNESS_SEVERITY_THRESHOLDS.darkRatioCritical -
+      DARKNESS_SEVERITY_THRESHOLDS.darkRatioStart);
+  const conditionSeverity =
+    condition === 'insufficient' ? 1 : condition === 'low-light' ? 0.68 : 0;
+
+  return clamp(
+    Math.max(brightnessSeverity, darkPixelSeverity, conditionSeverity),
+    0,
+    1,
+  );
+}
+
+export function getScreenLightRenderValues({
+  intensity,
+  visibilityMode,
+  lightingAnalysis,
+  faceDetected,
+  faceDetectionReady,
+}: ScreenLightRenderOptions): ScreenLightRenderValues {
+  if (intensity === 'off') {
+    return screenLightValues.off;
+  }
+
+  const baseValues = getBaseScreenLightValues(intensity, visibilityMode);
+  const darknessSeverity = getLightingDarknessSeverity(lightingAnalysis);
+  const missingFaceBoost =
+    faceDetectionReady && !faceDetected
+      ? DARKNESS_SEVERITY_THRESHOLDS.missingFaceBoost
+      : 0;
+  const adaptiveAmount = clamp(darknessSeverity + missingFaceBoost, 0, 1);
+
+  return interpolateScreenLightValues(
+    baseValues,
+    SCREEN_LIGHT_ADAPTIVE_MAX_VALUES,
+    adaptiveAmount,
+  );
 }

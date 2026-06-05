@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react';
+import { Camera, Route as RouteIcon } from 'lucide-react';
+import { lazy, Suspense, useEffect, useState } from 'react';
 
 import { AlertBanner } from './components/AlertBanner';
 import { CameraView } from './components/CameraView';
@@ -17,7 +18,18 @@ import {
   type DrowsinessSettings,
 } from './types/settings.types';
 
+type AppView = 'camera' | 'route';
+
+const NavigationView = lazy(async () => {
+  const module = await import('./components/NavigationView');
+
+  return {
+    default: module.NavigationView,
+  };
+});
+
 function App() {
+  const [activeView, setActiveView] = useState<AppView>('camera');
   const [settings, setSettings] = useState<DrowsinessSettings>(defaultDrowsinessSettings);
   const camera = useCamera({
     cameraEnhancementEnabled: settings.cameraEnhancementEnabled,
@@ -60,20 +72,49 @@ function App() {
     camera.status !== 'ready'
       ? undefined
       : isAlertActive
-        ? 'Alerta activa. Puedes silenciarla desde el botón superior.'
+        ? 'Alerta activa. Puedes silenciarla desde el boton superior.'
         : detection.isModelLoading
-          ? 'Cargando modelo de detección facial.'
+          ? 'Cargando modelo de deteccion facial.'
           : detection.errorMessage
             ? detection.errorMessage
             : detection.faceDetected
-              ? `Puntuación ${Math.round(
+              ? `Puntuacion ${Math.round(
                   detection.analysis.fatigueScore,
-                )}/100. Último frame en ${
+                )}/100. Ultimo frame en ${
                   detection.lastFrameTimeMs?.toFixed(1) ?? '0.0'
                 } ms.`
               : hasLimitedLighting
                 ? 'Centra tu rostro y mejora la iluminacion.'
                 : 'Centra tu rostro y manten buena iluminacion.';
+  const alertBanner = (
+    <AlertBanner
+      isActive={isAlertActive}
+      cooldownRemainingMs={cooldownRemainingMs}
+      onSilence={silenceAlert}
+    />
+  );
+  const routeCompanionPanels = (
+    <>
+      <DetectionStatus status={detectionStatus} detail={detectionDetail} />
+      <FatiguePanel analysis={detection.analysis} />
+      <InfoSection title="Monitor facial">
+        <dl className="grid grid-cols-2 gap-3 text-sm">
+          <div>
+            <dt className="text-zinc-500">Camara</dt>
+            <dd className="mt-1 text-zinc-100">
+              {camera.status === 'ready' ? 'Activa' : 'Inactiva'}
+            </dd>
+          </div>
+          <div>
+            <dt className="text-zinc-500">Fatiga</dt>
+            <dd className="mt-1 text-zinc-100">
+              {Math.round(detection.analysis.fatigueScore)}/100
+            </dd>
+          </div>
+        </dl>
+      </InfoSection>
+    </>
+  );
 
   return (
     <main className="min-h-screen w-full overflow-x-hidden bg-zinc-950 text-zinc-50">
@@ -81,7 +122,7 @@ function App() {
         <header className="flex flex-col justify-between gap-3 border-b border-zinc-800 pb-4 md:flex-row md:items-end md:pb-5">
           <div>
             <p className="text-xs font-medium uppercase tracking-[0.22em] text-cyan-300 sm:text-sm">
-              Detección local
+              Deteccion local + GPS
             </p>
             <h1 className="mt-2 text-2xl font-semibold tracking-normal text-white sm:text-3xl md:text-4xl">
               Monitor de Fatiga Facial
@@ -92,63 +133,111 @@ function App() {
           </p>
         </header>
 
-        <div className="grid min-w-0 flex-1 gap-4 lg:grid-cols-[minmax(0,1fr)_380px] lg:gap-5">
-          <div className="min-w-0 space-y-4">
-            <AlertBanner
-              isActive={isAlertActive}
-              cooldownRemainingMs={cooldownRemainingMs}
-              onSilence={silenceAlert}
-            />
-            <CameraView
-              status={camera.status}
-              errorMessage={camera.errorMessage}
-              videoRef={camera.videoRef}
-              lightingAnalysis={lightingAnalysis}
-              visibilityMode={settings.visibilityMode}
-              screenLightIntensity={settings.screenLightIntensity}
-              videoEnhancementEnabled={settings.videoEnhancementEnabled}
-              onStartCamera={() => {
-                void camera.startCamera();
-              }}
-            />
-          </div>
+        <nav
+          className="grid grid-cols-2 gap-2 rounded-lg border border-zinc-800 bg-zinc-900/70 p-1 sm:w-fit"
+          aria-label="Vista principal"
+        >
+          <button
+            className={`inline-flex min-h-11 items-center justify-center gap-2 rounded-md px-4 py-2 text-sm font-semibold transition ${
+              activeView === 'camera'
+                ? 'bg-cyan-300 text-zinc-950'
+                : 'text-zinc-300 hover:bg-zinc-800'
+            }`}
+            type="button"
+            onClick={() => {
+              setActiveView('camera');
+            }}
+          >
+            <Camera className="h-4 w-4" aria-hidden="true" />
+            Camara
+          </button>
+          <button
+            className={`inline-flex min-h-11 items-center justify-center gap-2 rounded-md px-4 py-2 text-sm font-semibold transition ${
+              activeView === 'route'
+                ? 'bg-cyan-300 text-zinc-950'
+                : 'text-zinc-300 hover:bg-zinc-800'
+            }`}
+            type="button"
+            onClick={() => {
+              setActiveView('route');
+            }}
+          >
+            <RouteIcon className="h-4 w-4" aria-hidden="true" />
+            Ruta
+          </button>
+        </nav>
 
-          <aside className="min-w-0 space-y-4">
-            <DetectionStatus status={detectionStatus} detail={detectionDetail} />
-            <FatiguePanel analysis={detection.analysis} />
-            <SettingsPanel
-              settings={settings}
-              cameraEnhancement={camera.cameraEnhancement}
-              adaptiveProfile={detection.analysis.adaptiveProfile}
-              onSettingsChange={setSettings}
+        {activeView === 'route' ? (
+          <Suspense
+            fallback={
+              <div className="rounded-lg border border-zinc-800 bg-zinc-900/80 px-4 py-6 text-sm text-zinc-300">
+                Cargando ruta GPS...
+              </div>
+            }
+          >
+            <NavigationView
+              alertBanner={alertBanner}
+              companionPanels={routeCompanionPanels}
+              onCurveAlert={triggerAlert}
             />
-            <InfoSection title="Motor de detección">
-              <dl className="grid grid-cols-2 gap-3 text-sm">
-                <div>
-                  <dt className="text-zinc-500">Modelo</dt>
-                  <dd className="mt-1 text-zinc-100">
-                    {detection.isModelLoading ? 'Cargando' : 'Face Landmarker'}
-                  </dd>
-                </div>
-                <div>
-                  <dt className="text-zinc-500">Runtime</dt>
-                  <dd className="mt-1 text-zinc-100">
-                    {detection.isRunning ? 'Activo' : 'En espera'}
-                  </dd>
-                </div>
-              </dl>
-            </InfoSection>
-            <InfoSection title="Métricas en vivo">
-              <MetricsPanel metrics={detection.metrics} variant="embedded" />
-            </InfoSection>
-            <InfoSection title="Privacidad">
-              <p className="text-sm leading-6 text-zinc-300">
-                Esta app usa WebRTC y detección local en el navegador. No hay backend y no
-                se persisten datos faciales.
-              </p>
-            </InfoSection>
-          </aside>
-        </div>
+          </Suspense>
+        ) : (
+          <div className="grid min-w-0 flex-1 gap-4 lg:grid-cols-[minmax(0,1fr)_380px] lg:gap-5">
+            <div className="min-w-0 space-y-4">
+              {alertBanner}
+              <CameraView
+                status={camera.status}
+                errorMessage={camera.errorMessage}
+                videoRef={camera.videoRef}
+                lightingAnalysis={lightingAnalysis}
+                visibilityMode={settings.visibilityMode}
+                screenLightIntensity={settings.screenLightIntensity}
+                videoEnhancementEnabled={settings.videoEnhancementEnabled}
+                faceDetected={detection.faceDetected}
+                faceDetectionReady={!detection.isModelLoading && !detection.errorMessage}
+                onStartCamera={() => {
+                  void camera.startCamera();
+                }}
+              />
+            </div>
+
+            <aside className="min-w-0 space-y-4">
+              <DetectionStatus status={detectionStatus} detail={detectionDetail} />
+              <FatiguePanel analysis={detection.analysis} />
+              <SettingsPanel
+                settings={settings}
+                cameraEnhancement={camera.cameraEnhancement}
+                adaptiveProfile={detection.analysis.adaptiveProfile}
+                onSettingsChange={setSettings}
+              />
+              <InfoSection title="Motor de deteccion">
+                <dl className="grid grid-cols-2 gap-3 text-sm">
+                  <div>
+                    <dt className="text-zinc-500">Modelo</dt>
+                    <dd className="mt-1 text-zinc-100">
+                      {detection.isModelLoading ? 'Cargando' : 'Face Landmarker'}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-zinc-500">Runtime</dt>
+                    <dd className="mt-1 text-zinc-100">
+                      {detection.isRunning ? 'Activo' : 'En espera'}
+                    </dd>
+                  </div>
+                </dl>
+              </InfoSection>
+              <InfoSection title="Metricas en vivo">
+                <MetricsPanel metrics={detection.metrics} variant="embedded" />
+              </InfoSection>
+              <InfoSection title="Privacidad">
+                <p className="text-sm leading-6 text-zinc-300">
+                  Esta app usa WebRTC y deteccion local en el navegador. No hay backend y no
+                  se persisten datos faciales.
+                </p>
+              </InfoSection>
+            </aside>
+          </div>
+        )}
       </div>
     </main>
   );
