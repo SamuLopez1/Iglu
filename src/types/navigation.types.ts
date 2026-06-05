@@ -17,6 +17,7 @@ export interface RouteStep {
   instruction: string;
   distanceMeters: number;
   maneuverType: string;
+  maneuverModifier: string | null;
   location: RoutePoint;
 }
 
@@ -25,6 +26,13 @@ export interface RouteData {
   steps: RouteStep[];
   distanceMeters: number;
   durationSeconds: number;
+}
+
+export interface DestinationSearchResult {
+  id: string;
+  name: string;
+  fullAddress: string;
+  point: RoutePoint;
 }
 
 export type CurveSeverity = 'moderate' | 'sharp';
@@ -55,6 +63,8 @@ export interface NavigationSettings {
   sharpCurveAngleDegrees: number;
   offRouteThresholdMeters: number;
 }
+
+export type RouteLoadingReason = 'destination' | 'route' | 'reroute';
 
 export const defaultNavigationSettings: NavigationSettings = {
   curveWarningDistanceMeters: 120,

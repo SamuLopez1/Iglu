@@ -14,12 +14,28 @@ import type {
   RoutePoint,
   RouteProgress,
 } from '../types/navigation.types';
+import {
+  AlertTriangle,
+  Gauge,
+  Navigation2,
+  Volume2,
+} from 'lucide-react';
+import {
+  formatDistance,
+  formatDuration,
+  formatEtaFromNow,
+  formatSpeed,
+  getEstimatedRemainingDurationSeconds,
+} from '../utils/routeGeometryUtils';
 
 interface RouteMapViewProps {
   route: RouteData | null;
   gpsReading: GpsReading | null;
-  destination: RoutePoint;
+  destination: RoutePoint | null;
+  destinationLabel: string | null;
   progress: RouteProgress;
+  routeStatusText: string;
+  isRouteLoading: boolean;
 }
 
 const DEFAULT_CENTER: RoutePoint = {
@@ -63,7 +79,7 @@ function toLngLat(point: RoutePoint): [number, number] {
 
 function getInitialCenter(
   gpsReading: GpsReading | null,
-  destination: RoutePoint,
+  destination: RoutePoint | null,
 ): LngLatLike {
   return toLngLat(gpsReading ?? destination ?? DEFAULT_CENTER);
 }
@@ -75,13 +91,18 @@ function getPreviewRoutePoints({
 }: {
   route: RouteData | null;
   gpsReading: GpsReading | null;
-  destination: RoutePoint;
+  destination: RoutePoint | null;
 }): RoutePoint[] {
   if (route && route.points.length >= 2) {
     return route.points;
   }
 
   const origin = gpsReading ?? DEFAULT_CENTER;
+
+  if (!destination) {
+    return [origin];
+  }
+
   const latDelta = destination.lat - origin.lat;
   const lngDelta = destination.lng - origin.lng;
 
@@ -216,8 +237,8 @@ function addRouteLayers(map: MapLibreMap): void {
     type: 'line',
     source: 'route-line',
     paint: {
-      'line-color': '#042f2e',
-      'line-width': 9,
+      'line-color': '#3b0764',
+      'line-width': 12,
       'line-opacity': 0.9,
     },
   });
@@ -226,8 +247,8 @@ function addRouteLayers(map: MapLibreMap): void {
     type: 'line',
     source: 'route-line',
     paint: {
-      'line-color': '#22d3ee',
-      'line-width': 5,
+      'line-color': '#7c3aed',
+      'line-width': 8,
       'line-opacity': 0.95,
     },
   });
@@ -268,10 +289,10 @@ function addRouteLayers(map: MapLibreMap): void {
     type: 'circle',
     source: 'vehicle-point',
     paint: {
-      'circle-color': '#e0f2fe',
-      'circle-radius': 7,
-      'circle-stroke-color': '#0284c7',
-      'circle-stroke-width': 4,
+      'circle-color': '#22d3ee',
+      'circle-radius': 9,
+      'circle-stroke-color': '#ecfeff',
+      'circle-stroke-width': 3,
     },
   });
 }
@@ -298,7 +319,7 @@ function NavigationPreviewMap({
 }: {
   route: RouteData | null;
   gpsReading: GpsReading | null;
-  destination: RoutePoint;
+  destination: RoutePoint | null;
 }) {
   const routePoints = getPreviewRoutePoints({
     route,
@@ -308,9 +329,9 @@ function NavigationPreviewMap({
   const projectedRoutePoints = getProjectedPreviewPoints(routePoints);
   const routePath = getPathFromPoints(projectedRoutePoints);
   const originPoint = projectedRoutePoints[0] ?? [180, 380];
-  const destinationPoint = projectedRoutePoints[projectedRoutePoints.length - 1] ?? [
-    820, 250,
-  ];
+  const destinationPoint = destination
+    ? projectedRoutePoints[projectedRoutePoints.length - 1] ?? [820, 250]
+    : null;
   const vehiclePoint = gpsReading ? originPoint : null;
 
   return (
@@ -323,9 +344,9 @@ function NavigationPreviewMap({
       >
         <defs>
           <linearGradient id="navigation-preview-bg" x1="0" x2="1" y1="0" y2="1">
-            <stop offset="0%" stopColor="#141a1f" />
-            <stop offset="55%" stopColor="#101820" />
-            <stop offset="100%" stopColor="#0f1715" />
+            <stop offset="0%" stopColor="#f5f7f7" />
+            <stop offset="55%" stopColor="#e5ebec" />
+            <stop offset="100%" stopColor="#d6dedf" />
           </linearGradient>
           <pattern
             id="navigation-preview-grid"
@@ -333,7 +354,7 @@ function NavigationPreviewMap({
             height="82"
             patternUnits="userSpaceOnUse"
           >
-            <path d="M 82 0 L 0 0 0 82" fill="none" stroke="#25303a" strokeWidth="1" />
+            <path d="M 82 0 L 0 0 0 82" fill="none" stroke="#cbd5d8" strokeWidth="1" />
           </pattern>
           <filter id="navigation-route-glow" x="-20%" y="-20%" width="140%" height="140%">
             <feGaussianBlur stdDeviation="5" result="blur" />
@@ -359,45 +380,45 @@ function NavigationPreviewMap({
         <g fill="none" strokeLinecap="round" strokeLinejoin="round">
           <path
             d="M -80 208 C 96 188 188 262 330 238 S 586 124 780 158 1020 124 1110 80"
-            stroke="#2b3540"
+            stroke="#9aa3aa"
             strokeWidth="28"
           />
           <path
             d="M -20 572 C 120 430 260 486 410 392 S 686 304 818 350 1010 300 1100 214"
-            stroke="#2b3540"
+            stroke="#9aa3aa"
             strokeWidth="26"
           />
           <path
             d="M 132 -70 C 164 88 132 196 218 318 S 380 506 314 770"
-            stroke="#26313b"
+            stroke="#aeb6bb"
             strokeWidth="24"
           />
           <path
             d="M 658 -40 C 610 104 690 216 628 356 S 540 560 610 760"
-            stroke="#26313b"
+            stroke="#aeb6bb"
             strokeWidth="22"
           />
           <path
             d="M -80 208 C 96 188 188 262 330 238 S 586 124 780 158 1020 124 1110 80"
-            stroke="#48515d"
+            stroke="#f8fafc"
             strokeWidth="3"
             opacity="0.66"
           />
           <path
             d="M -20 572 C 120 430 260 486 410 392 S 686 304 818 350 1010 300 1100 214"
-            stroke="#48515d"
+            stroke="#f8fafc"
             strokeWidth="3"
             opacity="0.66"
           />
           <path
             d="M 132 -70 C 164 88 132 196 218 318 S 380 506 314 770"
-            stroke="#3f4a55"
+            stroke="#f8fafc"
             strokeWidth="3"
             opacity="0.62"
           />
           <path
             d="M 658 -40 C 610 104 690 216 628 356 S 540 560 610 760"
-            stroke="#3f4a55"
+            stroke="#f8fafc"
             strokeWidth="3"
             opacity="0.62"
           />
@@ -407,7 +428,7 @@ function NavigationPreviewMap({
           <path
             d={routePath}
             fill="none"
-            stroke="#073042"
+            stroke="#3b0764"
             strokeLinecap="round"
             strokeLinejoin="round"
             strokeWidth="34"
@@ -415,7 +436,7 @@ function NavigationPreviewMap({
           <path
             d={routePath}
             fill="none"
-            stroke="#22d3ee"
+            stroke="#7c3aed"
             strokeLinecap="round"
             strokeLinejoin="round"
             strokeWidth="16"
@@ -423,7 +444,7 @@ function NavigationPreviewMap({
           <path
             d={routePath}
             fill="none"
-            stroke="#ecfeff"
+            stroke="#f5f3ff"
             strokeLinecap="round"
             strokeLinejoin="round"
             strokeWidth="4"
@@ -433,36 +454,43 @@ function NavigationPreviewMap({
         </g>
 
         <g>
-          <circle
-            cx={destinationPoint[0]}
-            cy={destinationPoint[1]}
-            r="21"
-            fill="#052e16"
-            stroke="#34d399"
-            strokeWidth="7"
-          />
-          <circle
-            cx={destinationPoint[0]}
-            cy={destinationPoint[1]}
-            r="7"
-            fill="#d1fae5"
-          />
+          {destinationPoint ? (
+            <>
+              <circle
+                cx={destinationPoint[0]}
+                cy={destinationPoint[1]}
+                r="21"
+                fill="#052e16"
+                stroke="#34d399"
+                strokeWidth="7"
+              />
+              <circle
+                cx={destinationPoint[0]}
+                cy={destinationPoint[1]}
+                r="7"
+                fill="#d1fae5"
+              />
+            </>
+          ) : null}
           {vehiclePoint ? (
             <>
               <circle
                 cx={vehiclePoint[0]}
                 cy={vehiclePoint[1]}
                 r="34"
-                fill="#38bdf8"
+                fill="#0e7490"
                 opacity="0.18"
               />
-              <circle
-                cx={vehiclePoint[0]}
-                cy={vehiclePoint[1]}
-                r="18"
-                fill="#e0f2fe"
-                stroke="#0284c7"
+              <path
+                d={`M ${vehiclePoint[0]} ${vehiclePoint[1] - 28} L ${
+                  vehiclePoint[0] + 24
+                } ${vehiclePoint[1] + 18} Q ${vehiclePoint[0]} ${
+                  vehiclePoint[1] + 30
+                } ${vehiclePoint[0] - 24} ${vehiclePoint[1] + 18} Z`}
+                fill="#22d3ee"
+                stroke="#ecfeff"
                 strokeWidth="7"
+                strokeLinejoin="round"
               />
             </>
           ) : null}
@@ -476,7 +504,10 @@ export function RouteMapView({
   route,
   gpsReading,
   destination,
+  destinationLabel,
   progress,
+  routeStatusText,
+  isRouteLoading,
 }: RouteMapViewProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
@@ -484,6 +515,26 @@ export function RouteMapView({
   const [mapStatus, setMapStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   const initialCenterRef = useRef<LngLatLike>(getInitialCenter(gpsReading, destination));
   const destinationData = useMemo(() => createPointData(destination), [destination]);
+  const remainingMeters = progress.remainingMeters ?? route?.distanceMeters ?? null;
+  const remainingDurationSeconds = getEstimatedRemainingDurationSeconds(
+    route,
+    progress.remainingMeters,
+  );
+  const nextInstruction =
+    progress.nextStep?.instruction ??
+    (route
+      ? 'Continua por la ruta'
+      : destination
+        ? 'Calcula la ruta para iniciar'
+        : 'Busca un destino');
+  const distanceToNextInstruction = progress.nextStep
+    ? formatDistance(progress.distanceToNextStepMeters)
+    : '--';
+  const speedLabel = formatSpeed(progress.speedKph ?? gpsReading?.speedKph ?? 0);
+  const streetLabel =
+    progress.nextStep?.instruction ??
+    destinationLabel ??
+    (destination ? 'Ruta seleccionada' : 'Busca un destino');
   const latestStateRef = useRef({
     route,
     gpsReading,
@@ -643,8 +694,8 @@ export function RouteMapView({
   }, [progress.upcomingCurve]);
 
   return (
-    <section className="min-h-[420px] overflow-hidden rounded-lg border border-zinc-800 bg-zinc-900 shadow-xl shadow-black/20">
-      <div className="relative h-[64dvh] min-h-[420px] w-full bg-zinc-950 sm:h-[620px]">
+    <section className="absolute inset-0 overflow-hidden bg-zinc-950">
+      <div className="relative h-full min-h-[720px] w-full bg-zinc-950">
         <NavigationPreviewMap
           route={route}
           gpsReading={gpsReading}
@@ -653,19 +704,70 @@ export function RouteMapView({
         <div
           ref={containerRef}
           className={`absolute inset-0 transition-opacity duration-500 ${
-            mapStatus === 'ready' ? 'opacity-80' : 'opacity-0'
+            mapStatus === 'ready' ? 'opacity-95' : 'opacity-0'
           }`}
         />
         {mapStatus !== 'ready' && (
-          <div className="pointer-events-none absolute bottom-3 left-3 rounded-md border border-zinc-700 bg-zinc-950/80 px-3 py-2 text-xs text-zinc-300 shadow-lg shadow-black/30 backdrop-blur">
+          <div className="pointer-events-none absolute left-5 top-28 rounded-full border border-zinc-200 bg-white/90 px-4 py-2 text-xs font-semibold text-zinc-700 shadow-lg shadow-black/20 backdrop-blur">
             {mapStatus === 'error' ? 'Mapa remoto sin respuesta' : 'Cargando mapa'}
           </div>
         )}
-        <div className="pointer-events-none absolute left-3 top-3 rounded-md border border-zinc-700 bg-zinc-950/85 px-3 py-2 text-xs text-zinc-200 shadow-lg shadow-black/30 backdrop-blur">
-          <p className="font-semibold text-white">{route ? 'Ruta activa' : 'Sin ruta'}</p>
-          <p className="mt-1 text-zinc-400">
-            {gpsReading ? 'GPS enlazado' : 'Esperando GPS'}
+        <div className="pointer-events-none absolute inset-x-0 top-0 z-20 bg-black px-5 pb-8 pt-8 text-center shadow-2xl shadow-black/25 sm:px-8">
+          <p className="text-sm font-semibold uppercase tracking-[0.18em] text-zinc-500">
+            {routeStatusText}
           </p>
+          <p className="mt-4 text-3xl font-bold leading-tight text-cyan-300 sm:text-4xl">
+            {isRouteLoading ? 'Calculando ruta' : nextInstruction}
+          </p>
+          <p className="mt-3 text-sm font-medium text-zinc-400">
+            {distanceToNextInstruction === '--'
+              ? gpsReading
+                ? 'Sigue la ruta destacada'
+                : 'Activa GPS para iniciar'
+              : `${distanceToNextInstruction} hasta la siguiente indicacion`}
+          </p>
+        </div>
+
+        <div className="pointer-events-none absolute bottom-[11.5rem] left-5 z-20 flex h-20 w-20 flex-col items-center justify-center rounded-full bg-zinc-900/88 text-white shadow-xl shadow-black/25 ring-4 ring-zinc-950/10 backdrop-blur md:bottom-[10.75rem]">
+          <Gauge className="h-4 w-4 text-zinc-400" aria-hidden="true" />
+          <p className="mt-1 text-2xl font-bold leading-none">{speedLabel.split(' ')[0]}</p>
+          <p className="text-xs text-zinc-300">km/h</p>
+        </div>
+
+        <div className="pointer-events-none absolute bottom-[11.75rem] left-1/2 z-20 max-w-[54%] -translate-x-1/2 rounded-full bg-white px-5 py-3 text-center text-base font-bold text-zinc-900 shadow-xl shadow-black/20 md:bottom-[11rem]">
+          <p className="truncate">{streetLabel}</p>
+        </div>
+
+        <button
+          className="absolute bottom-[11.5rem] right-5 z-20 inline-flex h-20 w-20 items-center justify-center rounded-full bg-white text-zinc-900 shadow-xl shadow-black/20 transition hover:scale-[1.02] md:bottom-[10.75rem]"
+          type="button"
+          aria-label="Estado de alerta de ruta"
+        >
+          {progress.upcomingCurve ? (
+            <AlertTriangle className="h-10 w-10 text-amber-500" aria-hidden="true" />
+          ) : (
+            <Navigation2 className="h-10 w-10 text-cyan-500" aria-hidden="true" />
+          )}
+        </button>
+
+        <button
+          className="absolute right-5 top-32 z-20 inline-flex h-16 w-16 items-center justify-center rounded-full bg-pink-500 text-white shadow-xl shadow-black/20 transition hover:scale-[1.02]"
+          type="button"
+          aria-label="Audio de navegacion"
+        >
+          <Volume2 className="h-8 w-8" aria-hidden="true" />
+        </button>
+
+        <div className="pointer-events-none absolute bottom-[5.5rem] left-5 right-5 z-20 hidden grid-cols-3 gap-2 text-center text-xs font-semibold text-zinc-700 md:grid">
+          <div className="rounded-full bg-white/92 px-3 py-2 shadow-lg shadow-black/10">
+            ETA {formatEtaFromNow(remainingDurationSeconds)}
+          </div>
+          <div className="rounded-full bg-white/92 px-3 py-2 shadow-lg shadow-black/10">
+            {formatDuration(remainingDurationSeconds)}
+          </div>
+          <div className="rounded-full bg-white/92 px-3 py-2 shadow-lg shadow-black/10">
+            {formatDistance(remainingMeters)}
+          </div>
         </div>
       </div>
     </section>

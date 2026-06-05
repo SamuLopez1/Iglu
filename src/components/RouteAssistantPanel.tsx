@@ -6,17 +6,29 @@ import {
   MapPin,
   Navigation,
   Route,
+  Search,
+  Timer,
+  X,
 } from 'lucide-react';
 
 import type {
+  DestinationSearchResult,
   GpsQuality,
   GpsReading,
   GpsTrackingStatus,
   RouteData,
+  RouteLoadingReason,
   RoutePoint,
   RouteProgress,
 } from '../types/navigation.types';
-import { formatDistance, formatSpeed, getCurveLabel } from '../utils/routeGeometryUtils';
+import {
+  formatDistance,
+  formatDuration,
+  formatEtaFromNow,
+  formatSpeed,
+  getCurveLabel,
+  getEstimatedRemainingDurationSeconds,
+} from '../utils/routeGeometryUtils';
 
 interface RouteAssistantPanelProps {
   gpsStatus: GpsTrackingStatus;
@@ -27,10 +39,18 @@ interface RouteAssistantPanelProps {
   route: RouteData | null;
   routeProgress: RouteProgress;
   routeErrorMessage: string | null;
-  isRouteLoading: boolean;
+  routeLoadingReason: RouteLoadingReason | null;
+  routeStatusText: string;
+  destinationQuery: string;
   destinationDraft: RoutePoint;
+  destinationResults: DestinationSearchResult[];
+  selectedDestination: DestinationSearchResult | null;
   mapboxReady: boolean;
-  onDestinationChange: (destination: RoutePoint) => void;
+  onDestinationQueryChange: (query: string) => void;
+  onDestinationPointChange: (destination: RoutePoint) => void;
+  onDestinationSearch: () => void;
+  onDestinationSelect: (destination: DestinationSearchResult) => void;
+  onClearDestination: () => void;
   onStartGps: () => void;
   onStartDemoGps: () => void;
   onStopGps: () => void;
@@ -42,34 +62,6 @@ const gpsQualityLabels: Record<GpsQuality, string> = {
   weak: 'GPS debil',
   unavailable: 'GPS no disponible',
 };
-
-const gpsQualityClassNames: Record<GpsQuality, string> = {
-  good: 'border-emerald-300/30 bg-emerald-400/10 text-emerald-100',
-  weak: 'border-amber-300/35 bg-amber-400/10 text-amber-100',
-  unavailable: 'border-zinc-700 bg-zinc-800 text-zinc-300',
-};
-
-function getGpsQualityLabel(
-  gpsQuality: GpsQuality,
-  gpsStatus: GpsTrackingStatus,
-): string {
-  if (gpsStatus === 'demo') {
-    return 'GPS demo';
-  }
-
-  return gpsQualityLabels[gpsQuality];
-}
-
-function getGpsQualityClassName(
-  gpsQuality: GpsQuality,
-  gpsStatus: GpsTrackingStatus,
-): string {
-  if (gpsStatus === 'demo') {
-    return 'border-sky-300/30 bg-sky-400/10 text-sky-100';
-  }
-
-  return gpsQualityClassNames[gpsQuality];
-}
 
 function getHeadingLabel(headingDegrees: number | null): string {
   if (headingDegrees === null || Number.isNaN(headingDegrees)) {
@@ -89,36 +81,34 @@ function getAccuracyLabel(gpsReading: GpsReading | null): string {
 
 function getGpsButtonLabel(gpsStatus: RouteAssistantPanelProps['gpsStatus']): string {
   if (gpsStatus === 'requesting') {
-    return 'Solicitando GPS';
+    return 'GPS';
   }
 
-  if (gpsStatus === 'tracking') {
-    return 'Detener GPS';
+  if (gpsStatus === 'tracking' || gpsStatus === 'demo') {
+    return 'Detener';
   }
 
-  if (gpsStatus === 'demo') {
-    return 'Detener demo';
-  }
-
-  return 'Iniciar GPS';
+  return 'GPS';
 }
 
-function getRouteStatusText({
-  route,
-  mapboxReady,
-}: {
-  route: RouteData | null;
-  mapboxReady: boolean;
-}): string {
-  if (route) {
-    return 'Ruta calculada';
+function getRouteButtonLabel(routeLoadingReason: RouteLoadingReason | null): string {
+  if (routeLoadingReason === 'destination') {
+    return 'Buscando';
   }
 
-  if (!mapboxReady) {
-    return 'Token Mapbox pendiente';
+  if (routeLoadingReason === 'reroute') {
+    return 'Recalculando';
   }
 
-  return 'Sin ruta activa';
+  if (routeLoadingReason === 'route') {
+    return 'Calculando';
+  }
+
+  return 'Ruta';
+}
+
+function formatCoordinate(value: number): string {
+  return value.toFixed(6);
 }
 
 export function RouteAssistantPanel({
@@ -130,10 +120,18 @@ export function RouteAssistantPanel({
   route,
   routeProgress,
   routeErrorMessage,
-  isRouteLoading,
+  routeLoadingReason,
+  routeStatusText,
+  destinationQuery,
   destinationDraft,
+  destinationResults,
+  selectedDestination,
   mapboxReady,
-  onDestinationChange,
+  onDestinationQueryChange,
+  onDestinationPointChange,
+  onDestinationSearch,
+  onDestinationSelect,
+  onClearDestination,
   onStartGps,
   onStartDemoGps,
   onStopGps,
@@ -141,191 +139,237 @@ export function RouteAssistantPanel({
 }: RouteAssistantPanelProps) {
   const isGpsTracking =
     gpsStatus === 'tracking' || gpsStatus === 'requesting' || gpsStatus === 'demo';
-  const hasCurve = Boolean(routeProgress.upcomingCurve);
+  const isRouteLoading = routeLoadingReason !== null;
+  const remainingMeters = routeProgress.remainingMeters ?? route?.distanceMeters ?? null;
+  const remainingDurationSeconds = getEstimatedRemainingDurationSeconds(
+    route,
+    routeProgress.remainingMeters,
+  );
+  const hasDestinationQuery = destinationQuery.trim().length > 0;
+  const canSearchDestination = mapboxReady && hasDestinationQuery && !isRouteLoading;
+  const canBuildRoute = mapboxReady && !isRouteLoading && Boolean(selectedDestination);
+  const nextInstruction =
+    routeProgress.nextStep?.instruction ??
+    (route ? 'Continua por la ruta' : 'Sin instruccion activa');
+  const errorMessage =
+    gpsErrorMessage ??
+    routeErrorMessage ??
+    (!isGpsSupported ? 'Geolocalizacion no soportada en este navegador.' : null);
 
   return (
-    <section className="overflow-hidden rounded-lg border border-zinc-800 bg-zinc-900/95">
-      <div className="border-b border-zinc-800 px-4 py-3">
-        <div className="flex items-center justify-between gap-3">
-          <h2 className="text-sm font-semibold text-white">Asistente GPS</h2>
-          <span
-            className={`rounded-md border px-2 py-1 text-[11px] font-medium ${getGpsQualityClassName(
-              gpsQuality,
-              gpsStatus,
-            )}`}
-          >
-            {getGpsQualityLabel(gpsQuality, gpsStatus)}
-          </span>
-        </div>
-      </div>
+    <section className="absolute inset-x-0 bottom-0 z-30 rounded-t-[1.35rem] bg-white px-4 pb-4 pt-3 text-zinc-950 shadow-2xl shadow-black/25 sm:left-1/2 sm:w-[min(720px,calc(100%-2rem))] sm:-translate-x-1/2 sm:px-6">
+      <div className="mx-auto mb-3 h-1.5 w-20 rounded-full bg-zinc-300" />
 
-      <div className="space-y-4 px-4 py-4">
-        <div className="grid grid-cols-2 gap-3">
-          <div className="rounded-md border border-zinc-800 bg-zinc-950/60 p-3">
-            <div className="flex items-center gap-2 text-zinc-400">
-              <Gauge className="h-4 w-4 text-cyan-300" aria-hidden="true" />
-              <p className="text-xs">Velocidad</p>
-            </div>
-            <p className="mt-2 text-xl font-semibold text-white">
-              {formatSpeed(routeProgress.speedKph ?? gpsReading?.speedKph ?? null)}
-            </p>
-          </div>
-          <div className="rounded-md border border-zinc-800 bg-zinc-950/60 p-3">
-            <div className="flex items-center gap-2 text-zinc-400">
-              <Compass className="h-4 w-4 text-cyan-300" aria-hidden="true" />
-              <p className="text-xs">Rumbo</p>
-            </div>
-            <p className="mt-2 text-xl font-semibold text-white">
-              {getHeadingLabel(
-                routeProgress.headingDegrees ?? gpsReading?.headingDegrees ?? null,
-              )}
-            </p>
-          </div>
-          <div className="rounded-md border border-zinc-800 bg-zinc-950/60 p-3">
-            <div className="flex items-center gap-2 text-zinc-400">
-              <LocateFixed className="h-4 w-4 text-cyan-300" aria-hidden="true" />
-              <p className="text-xs">Precision</p>
-            </div>
-            <p className="mt-2 text-xl font-semibold text-white">
-              {getAccuracyLabel(gpsReading)}
-            </p>
-          </div>
-          <div className="rounded-md border border-zinc-800 bg-zinc-950/60 p-3">
-            <div className="flex items-center gap-2 text-zinc-400">
-              <Route className="h-4 w-4 text-cyan-300" aria-hidden="true" />
-              <p className="text-xs">Restante</p>
-            </div>
-            <p className="mt-2 text-xl font-semibold text-white">
-              {formatDistance(routeProgress.remainingMeters)}
-            </p>
-          </div>
+      {destinationResults.length > 0 && (
+        <div className="absolute bottom-[calc(100%-0.75rem)] left-4 right-4 overflow-hidden rounded-2xl bg-white shadow-2xl shadow-black/20 ring-1 ring-zinc-200 sm:left-6 sm:right-6">
+          {destinationResults.map((result) => (
+            <button
+              key={result.id}
+              className="block min-h-14 w-full border-b border-zinc-100 px-4 py-3 text-left transition last:border-b-0 hover:bg-zinc-50 disabled:opacity-60"
+              type="button"
+              disabled={isRouteLoading}
+              onClick={() => {
+                onDestinationSelect(result);
+              }}
+            >
+              <span className="block truncate text-sm font-bold text-zinc-950">
+                {result.name}
+              </span>
+              <span className="mt-1 block truncate text-xs text-zinc-500">
+                {result.fullAddress}
+              </span>
+            </button>
+          ))}
         </div>
+      )}
 
-        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
-          <button
-            className="inline-flex min-h-11 items-center justify-center gap-2 rounded-md border border-cyan-300/30 bg-cyan-300 px-3 py-2 text-sm font-semibold text-zinc-950 transition hover:bg-cyan-200 disabled:cursor-not-allowed disabled:opacity-60"
-            type="button"
-            onClick={isGpsTracking ? onStopGps : onStartGps}
-            disabled={
-              (gpsStatus !== 'demo' && !isGpsSupported) || gpsStatus === 'requesting'
-            }
-          >
-            <LocateFixed className="h-4 w-4" aria-hidden="true" />
-            {getGpsButtonLabel(gpsStatus)}
-          </button>
-          <button
-            className="inline-flex min-h-11 items-center justify-center gap-2 rounded-md border border-sky-300/25 bg-sky-400/10 px-3 py-2 text-sm font-semibold text-sky-100 transition hover:bg-sky-400/15 disabled:cursor-not-allowed disabled:opacity-60"
-            type="button"
-            onClick={onStartDemoGps}
-            disabled={gpsStatus === 'requesting' || gpsStatus === 'demo'}
-          >
-            <MapPin className="h-4 w-4" aria-hidden="true" />
-            GPS demo
-          </button>
-          <button
-            className="inline-flex min-h-11 items-center justify-center gap-2 rounded-md border border-emerald-300/25 bg-emerald-400/10 px-3 py-2 text-sm font-semibold text-emerald-100 transition hover:bg-emerald-400/15 disabled:cursor-not-allowed disabled:opacity-60"
-            type="button"
-            onClick={onBuildRoute}
-            disabled={isRouteLoading}
-          >
-            <Navigation className="h-4 w-4" aria-hidden="true" />
-            {isRouteLoading ? 'Calculando' : 'Calcular ruta'}
-          </button>
-        </div>
-
-        <div className="rounded-md border border-zinc-800 bg-zinc-950/60 p-3">
-          <div className="mb-3 flex items-center justify-between gap-3">
-            <div className="flex items-center gap-2 text-zinc-300">
-              <MapPin className="h-4 w-4 text-emerald-300" aria-hidden="true" />
-              <p className="text-sm font-semibold text-white">Destino</p>
-            </div>
-            <span className="text-xs text-zinc-500">
-              {getRouteStatusText({ route, mapboxReady })}
-            </span>
-          </div>
-          <div className="grid grid-cols-2 gap-2">
-            <label className="min-w-0 text-xs text-zinc-400">
-              Lat
-              <input
-                className="mt-1 min-h-10 w-full rounded-md border border-zinc-700 bg-zinc-950 px-3 text-sm text-zinc-100 outline-none transition focus:border-cyan-300"
-                inputMode="decimal"
-                type="number"
-                step="0.000001"
-                value={destinationDraft.lat}
-                onChange={(event) => {
-                  onDestinationChange({
-                    ...destinationDraft,
-                    lat: Number(event.target.value),
-                  });
-                }}
-              />
-            </label>
-            <label className="min-w-0 text-xs text-zinc-400">
-              Lng
-              <input
-                className="mt-1 min-h-10 w-full rounded-md border border-zinc-700 bg-zinc-950 px-3 text-sm text-zinc-100 outline-none transition focus:border-cyan-300"
-                inputMode="decimal"
-                type="number"
-                step="0.000001"
-                value={destinationDraft.lng}
-                onChange={(event) => {
-                  onDestinationChange({
-                    ...destinationDraft,
-                    lng: Number(event.target.value),
-                  });
-                }}
-              />
-            </label>
-          </div>
-        </div>
-
-        <div
-          className={`rounded-md border p-3 ${
-            hasCurve
-              ? 'border-amber-300/35 bg-amber-400/10 text-amber-100'
-              : 'border-zinc-800 bg-zinc-950/60 text-zinc-300'
-          }`}
-        >
-          <div className="flex items-center gap-2">
-            <AlertTriangle
-              className={`h-4 w-4 ${hasCurve ? 'text-amber-200' : 'text-zinc-500'}`}
-              aria-hidden="true"
+      <form
+        className="grid grid-cols-[1fr_auto] gap-2"
+        onSubmit={(event) => {
+          event.preventDefault();
+          onDestinationSearch();
+        }}
+      >
+        <label className="min-w-0">
+          <span className="sr-only">Buscar destino</span>
+          <div className="flex min-h-12 items-center rounded-full bg-zinc-100 px-4 ring-1 ring-zinc-200 focus-within:ring-cyan-400">
+            <Search className="h-5 w-5 shrink-0 text-zinc-500" aria-hidden="true" />
+            <input
+              className="min-h-11 min-w-0 flex-1 bg-transparent px-3 text-sm font-semibold text-zinc-950 outline-none placeholder:text-zinc-500"
+              type="search"
+              placeholder="¿A dónde vamos?"
+              value={destinationQuery}
+              onChange={(event) => {
+                onDestinationQueryChange(event.target.value);
+              }}
             />
-            <p className="text-sm font-semibold">
-              {getCurveLabel(routeProgress.upcomingCurve)}
-            </p>
+            {(destinationQuery || selectedDestination || route) && (
+              <button
+                className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-zinc-500 transition hover:bg-zinc-200 hover:text-zinc-900"
+                type="button"
+                aria-label="Limpiar destino"
+                onClick={onClearDestination}
+              >
+                <X className="h-4 w-4" aria-hidden="true" />
+              </button>
+            )}
           </div>
-          <p className="mt-2 text-xs leading-5 opacity-85">
-            {routeProgress.upcomingCurve
-              ? `${formatDistance(
-                  routeProgress.upcomingCurve.distanceMeters,
-                )} · ${Math.round(routeProgress.upcomingCurve.angleDegrees)}°`
-              : routeProgress.isOffRoute
-                ? 'Fuera de ruta'
-                : 'Trayecto estable'}
+        </label>
+        <button
+          className="inline-flex h-12 min-w-12 items-center justify-center rounded-full bg-cyan-400 px-4 font-bold text-zinc-950 shadow-lg shadow-cyan-500/25 transition hover:bg-cyan-300 disabled:cursor-not-allowed disabled:opacity-50"
+          type="submit"
+          disabled={!canSearchDestination}
+        >
+          <Navigation className="h-5 w-5" aria-hidden="true" />
+        </button>
+      </form>
+
+      <div className="mt-4 grid grid-cols-[auto_1fr_auto] items-center gap-4">
+        <button
+          className="inline-flex h-14 w-14 items-center justify-center rounded-full bg-zinc-100 text-zinc-700 transition hover:bg-zinc-200"
+          type="button"
+          aria-label="Buscar destino"
+          disabled={!canSearchDestination}
+          onClick={onDestinationSearch}
+        >
+          <Search className="h-6 w-6" aria-hidden="true" />
+        </button>
+
+        <div className="min-w-0 text-center">
+          <p className="text-4xl font-black leading-none tracking-normal">
+            {formatEtaFromNow(remainingDurationSeconds)}
+          </p>
+          <p className="mt-1 truncate text-base font-bold text-zinc-700">
+            {formatDuration(remainingDurationSeconds)} · {formatDistance(remainingMeters)}
+          </p>
+          <p className="mt-1 truncate text-xs font-semibold text-zinc-500">
+            {selectedDestination?.name ?? routeStatusText}
           </p>
         </div>
 
-        <div className="rounded-md border border-zinc-800 bg-zinc-950/60 p-3">
-          <p className="text-xs font-medium uppercase tracking-[0.18em] text-zinc-500">
-            Proximo giro
-          </p>
-          <p className="mt-2 text-sm leading-5 text-zinc-100">
-            {routeProgress.nextStep?.instruction ?? 'Sin instruccion activa'}
-          </p>
-          <p className="mt-2 text-xs text-zinc-500">
-            {formatDistance(routeProgress.distanceToNextStepMeters)}
-          </p>
-        </div>
-
-        {(gpsErrorMessage || routeErrorMessage || !isGpsSupported) && (
-          <div className="rounded-md border border-rose-300/30 bg-rose-400/10 px-3 py-2 text-xs leading-5 text-rose-100">
-            {gpsErrorMessage ??
-              routeErrorMessage ??
-              'Geolocalizacion no soportada en este navegador.'}
-          </div>
-        )}
+        <button
+          className="inline-flex h-14 w-14 items-center justify-center rounded-full bg-zinc-100 text-zinc-700 transition hover:bg-zinc-200 disabled:cursor-not-allowed disabled:opacity-50"
+          type="button"
+          aria-label="Calcular ruta"
+          disabled={!canBuildRoute}
+          onClick={onBuildRoute}
+        >
+          <Route className="h-6 w-6" aria-hidden="true" />
+        </button>
       </div>
+
+      <div className="mt-4 grid grid-cols-5 gap-2 text-center text-[11px] font-bold text-zinc-600">
+        <div className="min-w-0 rounded-2xl bg-zinc-100 px-2 py-2">
+          <Gauge className="mx-auto h-4 w-4 text-cyan-600" aria-hidden="true" />
+          <p className="mt-1 truncate">{formatSpeed(routeProgress.speedKph ?? gpsReading?.speedKph ?? null)}</p>
+        </div>
+        <div className="min-w-0 rounded-2xl bg-zinc-100 px-2 py-2">
+          <Compass className="mx-auto h-4 w-4 text-cyan-600" aria-hidden="true" />
+          <p className="mt-1 truncate">
+            {getHeadingLabel(routeProgress.headingDegrees ?? gpsReading?.headingDegrees ?? null)}
+          </p>
+        </div>
+        <div className="min-w-0 rounded-2xl bg-zinc-100 px-2 py-2">
+          <LocateFixed className="mx-auto h-4 w-4 text-cyan-600" aria-hidden="true" />
+          <p className="mt-1 truncate">{getAccuracyLabel(gpsReading)}</p>
+        </div>
+        <div className="min-w-0 rounded-2xl bg-zinc-100 px-2 py-2">
+          <Timer className="mx-auto h-4 w-4 text-cyan-600" aria-hidden="true" />
+          <p className="mt-1 truncate">{formatDistance(routeProgress.distanceToNextStepMeters)}</p>
+        </div>
+        <div className="min-w-0 rounded-2xl bg-zinc-100 px-2 py-2">
+          <AlertTriangle
+            className={`mx-auto h-4 w-4 ${
+              routeProgress.upcomingCurve ? 'text-amber-500' : 'text-cyan-600'
+            }`}
+            aria-hidden="true"
+          />
+          <p className="mt-1 truncate">
+            {routeProgress.upcomingCurve ? getCurveLabel(routeProgress.upcomingCurve) : gpsQualityLabels[gpsQuality]}
+          </p>
+        </div>
+      </div>
+
+      <div className="mt-3 grid grid-cols-3 gap-2">
+        <button
+          className="inline-flex min-h-11 items-center justify-center gap-2 rounded-full bg-zinc-950 px-3 text-sm font-bold text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50"
+          type="button"
+          onClick={isGpsTracking ? onStopGps : onStartGps}
+          disabled={
+            (gpsStatus !== 'demo' && !isGpsSupported) || gpsStatus === 'requesting'
+          }
+        >
+          <LocateFixed className="h-4 w-4" aria-hidden="true" />
+          {getGpsButtonLabel(gpsStatus)}
+        </button>
+        <button
+          className="inline-flex min-h-11 items-center justify-center gap-2 rounded-full bg-zinc-100 px-3 text-sm font-bold text-zinc-800 transition hover:bg-zinc-200 disabled:cursor-not-allowed disabled:opacity-50"
+          type="button"
+          onClick={onStartDemoGps}
+          disabled={gpsStatus === 'requesting' || gpsStatus === 'demo'}
+        >
+          <MapPin className="h-4 w-4" aria-hidden="true" />
+          Demo
+        </button>
+        <button
+          className="inline-flex min-h-11 items-center justify-center gap-2 rounded-full bg-violet-600 px-3 text-sm font-bold text-white transition hover:bg-violet-500 disabled:cursor-not-allowed disabled:opacity-50"
+          type="button"
+          onClick={onBuildRoute}
+          disabled={!canBuildRoute}
+        >
+          <Navigation className="h-4 w-4" aria-hidden="true" />
+          {getRouteButtonLabel(routeLoadingReason)}
+        </button>
+      </div>
+
+      <details className="mt-3 rounded-2xl bg-zinc-100 px-4 py-3 text-xs text-zinc-600">
+        <summary className="cursor-pointer font-bold text-zinc-800">
+          {nextInstruction}
+        </summary>
+        <div className="mt-3 grid grid-cols-2 gap-2">
+          <label className="min-w-0">
+            Lat
+            <input
+              className="mt-1 min-h-10 w-full rounded-xl border border-zinc-200 bg-white px-3 text-sm font-semibold text-zinc-950 outline-none transition focus:border-cyan-400"
+              inputMode="decimal"
+              type="number"
+              step="0.000001"
+              value={destinationDraft.lat}
+              onChange={(event) => {
+                onDestinationPointChange({
+                  ...destinationDraft,
+                  lat: Number(event.target.value),
+                });
+              }}
+            />
+          </label>
+          <label className="min-w-0">
+            Lng
+            <input
+              className="mt-1 min-h-10 w-full rounded-xl border border-zinc-200 bg-white px-3 text-sm font-semibold text-zinc-950 outline-none transition focus:border-cyan-400"
+              inputMode="decimal"
+              type="number"
+              step="0.000001"
+              value={destinationDraft.lng}
+              onChange={(event) => {
+                onDestinationPointChange({
+                  ...destinationDraft,
+                  lng: Number(event.target.value),
+                });
+              }}
+            />
+          </label>
+        </div>
+        <p className="mt-2">
+          {formatCoordinate(destinationDraft.lat)}, {formatCoordinate(destinationDraft.lng)}
+        </p>
+      </details>
+
+      {errorMessage && (
+        <div className="mt-3 rounded-2xl bg-rose-50 px-4 py-3 text-xs font-semibold leading-5 text-rose-700 ring-1 ring-rose-200">
+          {errorMessage}
+        </div>
+      )}
     </section>
   );
 }

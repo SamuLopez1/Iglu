@@ -116,6 +116,36 @@ function App() {
     </>
   );
 
+  if (activeView === 'route') {
+    return (
+      <main className="min-h-screen w-full overflow-x-hidden bg-black text-zinc-50">
+        <button
+          className="fixed left-4 top-4 z-50 inline-flex h-11 w-11 items-center justify-center rounded-full bg-white/92 text-zinc-950 shadow-xl shadow-black/20 backdrop-blur transition hover:bg-white"
+          type="button"
+          aria-label="Volver a camara"
+          onClick={() => {
+            setActiveView('camera');
+          }}
+        >
+          <Camera className="h-4 w-4" aria-hidden="true" />
+        </button>
+        <Suspense
+          fallback={
+            <div className="flex min-h-screen items-center justify-center bg-black px-4 text-sm font-semibold text-zinc-300">
+              Cargando ruta GPS...
+            </div>
+          }
+        >
+          <NavigationView
+            alertBanner={alertBanner}
+            companionPanels={routeCompanionPanels}
+            onCurveAlert={triggerAlert}
+          />
+        </Suspense>
+      </main>
+    );
+  }
+
   return (
     <main className="min-h-screen w-full overflow-x-hidden bg-zinc-950 text-zinc-50">
       <div className="mx-auto flex min-h-screen w-full max-w-7xl flex-col gap-4 overflow-x-hidden py-4 pl-3 pr-5 sm:px-4 sm:py-5 lg:px-6">
@@ -138,11 +168,7 @@ function App() {
           aria-label="Vista principal"
         >
           <button
-            className={`inline-flex min-h-11 items-center justify-center gap-2 rounded-md px-4 py-2 text-sm font-semibold transition ${
-              activeView === 'camera'
-                ? 'bg-cyan-300 text-zinc-950'
-                : 'text-zinc-300 hover:bg-zinc-800'
-            }`}
+            className="inline-flex min-h-11 items-center justify-center gap-2 rounded-md bg-cyan-300 px-4 py-2 text-sm font-semibold text-zinc-950 transition"
             type="button"
             onClick={() => {
               setActiveView('camera');
@@ -152,11 +178,7 @@ function App() {
             Camara
           </button>
           <button
-            className={`inline-flex min-h-11 items-center justify-center gap-2 rounded-md px-4 py-2 text-sm font-semibold transition ${
-              activeView === 'route'
-                ? 'bg-cyan-300 text-zinc-950'
-                : 'text-zinc-300 hover:bg-zinc-800'
-            }`}
+            className="inline-flex min-h-11 items-center justify-center gap-2 rounded-md px-4 py-2 text-sm font-semibold text-zinc-300 transition hover:bg-zinc-800"
             type="button"
             onClick={() => {
               setActiveView('route');
@@ -167,77 +189,61 @@ function App() {
           </button>
         </nav>
 
-        {activeView === 'route' ? (
-          <Suspense
-            fallback={
-              <div className="rounded-lg border border-zinc-800 bg-zinc-900/80 px-4 py-6 text-sm text-zinc-300">
-                Cargando ruta GPS...
-              </div>
-            }
-          >
-            <NavigationView
-              alertBanner={alertBanner}
-              companionPanels={routeCompanionPanels}
-              onCurveAlert={triggerAlert}
+        <div className="grid min-w-0 flex-1 gap-4 lg:grid-cols-[minmax(0,1fr)_380px] lg:gap-5">
+          <div className="min-w-0 space-y-4">
+            {alertBanner}
+            <CameraView
+              status={camera.status}
+              errorMessage={camera.errorMessage}
+              videoRef={camera.videoRef}
+              lightingAnalysis={lightingAnalysis}
+              visibilityMode={settings.visibilityMode}
+              screenLightIntensity={settings.screenLightIntensity}
+              videoEnhancementEnabled={settings.videoEnhancementEnabled}
+              faceDetected={detection.faceDetected}
+              faceDetectionReady={!detection.isModelLoading && !detection.errorMessage}
+              onStartCamera={() => {
+                void camera.startCamera();
+              }}
             />
-          </Suspense>
-        ) : (
-          <div className="grid min-w-0 flex-1 gap-4 lg:grid-cols-[minmax(0,1fr)_380px] lg:gap-5">
-            <div className="min-w-0 space-y-4">
-              {alertBanner}
-              <CameraView
-                status={camera.status}
-                errorMessage={camera.errorMessage}
-                videoRef={camera.videoRef}
-                lightingAnalysis={lightingAnalysis}
-                visibilityMode={settings.visibilityMode}
-                screenLightIntensity={settings.screenLightIntensity}
-                videoEnhancementEnabled={settings.videoEnhancementEnabled}
-                faceDetected={detection.faceDetected}
-                faceDetectionReady={!detection.isModelLoading && !detection.errorMessage}
-                onStartCamera={() => {
-                  void camera.startCamera();
-                }}
-              />
-            </div>
-
-            <aside className="min-w-0 space-y-4">
-              <DetectionStatus status={detectionStatus} detail={detectionDetail} />
-              <FatiguePanel analysis={detection.analysis} />
-              <SettingsPanel
-                settings={settings}
-                cameraEnhancement={camera.cameraEnhancement}
-                adaptiveProfile={detection.analysis.adaptiveProfile}
-                onSettingsChange={setSettings}
-              />
-              <InfoSection title="Motor de deteccion">
-                <dl className="grid grid-cols-2 gap-3 text-sm">
-                  <div>
-                    <dt className="text-zinc-500">Modelo</dt>
-                    <dd className="mt-1 text-zinc-100">
-                      {detection.isModelLoading ? 'Cargando' : 'Face Landmarker'}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt className="text-zinc-500">Runtime</dt>
-                    <dd className="mt-1 text-zinc-100">
-                      {detection.isRunning ? 'Activo' : 'En espera'}
-                    </dd>
-                  </div>
-                </dl>
-              </InfoSection>
-              <InfoSection title="Metricas en vivo">
-                <MetricsPanel metrics={detection.metrics} variant="embedded" />
-              </InfoSection>
-              <InfoSection title="Privacidad">
-                <p className="text-sm leading-6 text-zinc-300">
-                  Esta app usa WebRTC y deteccion local en el navegador. No hay backend y no
-                  se persisten datos faciales.
-                </p>
-              </InfoSection>
-            </aside>
           </div>
-        )}
+
+          <aside className="min-w-0 space-y-4">
+            <DetectionStatus status={detectionStatus} detail={detectionDetail} />
+            <FatiguePanel analysis={detection.analysis} />
+            <SettingsPanel
+              settings={settings}
+              cameraEnhancement={camera.cameraEnhancement}
+              adaptiveProfile={detection.analysis.adaptiveProfile}
+              onSettingsChange={setSettings}
+            />
+            <InfoSection title="Motor de deteccion">
+              <dl className="grid grid-cols-2 gap-3 text-sm">
+                <div>
+                  <dt className="text-zinc-500">Modelo</dt>
+                  <dd className="mt-1 text-zinc-100">
+                    {detection.isModelLoading ? 'Cargando' : 'Face Landmarker'}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-zinc-500">Runtime</dt>
+                  <dd className="mt-1 text-zinc-100">
+                    {detection.isRunning ? 'Activo' : 'En espera'}
+                  </dd>
+                </div>
+              </dl>
+            </InfoSection>
+            <InfoSection title="Metricas en vivo">
+              <MetricsPanel metrics={detection.metrics} variant="embedded" />
+            </InfoSection>
+            <InfoSection title="Privacidad">
+              <p className="text-sm leading-6 text-zinc-300">
+                Esta app usa WebRTC y deteccion local en el navegador. No hay backend y no
+                se persisten datos faciales.
+              </p>
+            </InfoSection>
+          </aside>
+        </div>
       </div>
     </main>
   );

@@ -1,6 +1,7 @@
 import type {
   CurveDirection,
   CurveSeverity,
+  RouteData,
   RoutePoint,
   RouteStep,
   UpcomingCurve,
@@ -360,6 +361,57 @@ export function formatSpeed(speedKph: number | null): string {
   }
 
   return `${Math.round(speedKph)} km/h`;
+}
+
+export function getEstimatedRemainingDurationSeconds(
+  route: RouteData | null,
+  remainingMeters: number | null,
+): number | null {
+  if (!route) {
+    return null;
+  }
+
+  if (
+    remainingMeters === null ||
+    Number.isNaN(remainingMeters) ||
+    route.distanceMeters <= 0
+  ) {
+    return route.durationSeconds;
+  }
+
+  const progressRatio = Math.min(Math.max(remainingMeters / route.distanceMeters, 0), 1);
+
+  return route.durationSeconds * progressRatio;
+}
+
+export function formatDuration(seconds: number | null): string {
+  if (seconds === null || Number.isNaN(seconds)) {
+    return '--';
+  }
+
+  const minutes = Math.max(1, Math.round(seconds / 60));
+
+  if (minutes < 60) {
+    return `${minutes} min`;
+  }
+
+  const hours = Math.floor(minutes / 60);
+  const remainingMinutes = minutes % 60;
+
+  return remainingMinutes > 0
+    ? `${hours} h ${remainingMinutes} min`
+    : `${hours} h`;
+}
+
+export function formatEtaFromNow(seconds: number | null): string {
+  if (seconds === null || Number.isNaN(seconds)) {
+    return '--';
+  }
+
+  return new Intl.DateTimeFormat('es-CO', {
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(new Date(Date.now() + seconds * 1000));
 }
 
 export function getCurveLabel(curve: UpcomingCurve | null): string {
